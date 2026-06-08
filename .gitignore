@@ -1,0 +1,41 @@
+# Зависимости
+node_modules/
+.pnpm-store/
+
+# Сборка
+dist/
+.vite/
+
+# Кэш и временные файлы
+.cache/
+*.log
+.DS_Store
+Thumbs.db
+
+# Python (парсеры)
+parser_venv/
+__pycache__/
+*.pyc
+
+# Локальные env
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
+
+# Бэкапы и устаревший код
+__backup_comments__/
+archive/
+
+# Одноразовые скрипты и локальные данные
+ai.py
+p.py
+city.db
+
+# Дубликаты JSON в корне (актуальные копии — в public/)
+/news_data.json
+/it_news_data.json
+/events_data.json
+/university_news_data.json
