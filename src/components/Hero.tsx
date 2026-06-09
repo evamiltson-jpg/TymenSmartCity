@@ -21,13 +21,13 @@ export const Hero: React.FC<HeroProps> = ({ onNavigate, currentPage, backgroundI
   return (
     <div className="mb-0 -mx-4 sm:-mx-6 lg:mx-0">
       <section className="relative w-full overflow-hidden bg-[#063553]">
-        <div className="relative w-full overflow-hidden h-[200px] sm:h-[340px] md:h-[440px] lg:h-[520px] xl:h-[580px]">
+        <div className="relative w-full overflow-hidden h-[200px] sm:h-[360px] md:h-[500px] lg:h-[700px]">
           <img
             src={bgImage}
             alt="Smart City Banner"
-            className="w-full h-full object-cover block object-[center_75%] sm:object-[center_80%] lg:object-bottom"
+            className="w-full h-full object-cover object-center block lg:object-[center_110%]"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#063553]/50 via-transparent to-transparent lg:from-[#063553]/40" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#063553]/60 via-transparent to-transparent" />
         </div>
       </section>
 

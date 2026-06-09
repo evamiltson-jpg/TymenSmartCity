@@ -233,6 +233,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     let mounted = true;
+    const loadingTimeout = window.setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 6000);
 
     const init = async () => {
       try {
@@ -247,6 +250,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (err) {
         console.error('Ошибка инициализации сессии:', err);
         if (mounted) setLoading(false);
+      } finally {
+        window.clearTimeout(loadingTimeout);
       }
     };
 
@@ -274,6 +279,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       mounted = false;
+      window.clearTimeout(loadingTimeout);
       subscription.unsubscribe();
     };
   }, []);
