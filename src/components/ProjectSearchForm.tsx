@@ -247,20 +247,20 @@ export const ProjectSearchForm: React.FC<{ onProjectSelect?: (project: ProjectDa
                 ))}
               </select>
             </label>
-            <label className="block md:col-span-2">
+            <label className="block">
               <span className="text-sm text-gray-300 mb-2 block font-medium">Технология</span>
-              <input
-                list="project-technology-options"
+              <select
                 value={filters.technology || ''}
                 onChange={(e) => updateFilter('technology', e.target.value)}
                 className={inputClass}
-                placeholder="React, Python, IoT..."
-              />
-              <datalist id="project-technology-options">
+              >
+                <option value="">Любая технология</option>
                 {TECHNOLOGY_PRESETS.map((item) => (
-                  <option key={item} value={item} />
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
                 ))}
-              </datalist>
+              </select>
             </label>
             <label className="block">
               <span className="text-sm text-gray-300 mb-2 block font-medium">Статус</span>
