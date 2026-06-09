@@ -5,14 +5,30 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    overflow-x: hidden;
+    width: 100%;
   }
 
   body {
     @apply min-h-screen bg-slate-950 text-white antialiased;
     font-family: 'Roboto', sans-serif;
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100vw;
   }
 
   * {
     box-sizing: border-box;
+  }
+
+  #root {
+    width: 100%;
+    overflow-x: hidden;
+  }
+}
+
+@layer components {
+  .page-container {
+    @apply w-full mx-auto px-4 sm:px-6 lg:w-[81.25%] lg:px-0;
   }
 }

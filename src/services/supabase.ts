@@ -14,11 +14,14 @@ const supabaseKey =
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseKey);
 
-const REQUEST_TIMEOUT_MS = 25_000;
+const READ_TIMEOUT_MS = 20_000;
+const WRITE_TIMEOUT_MS = 60_000;
 
 const fetchWithTimeout: typeof fetch = async (input, init) => {
+  const method = (init?.method || 'GET').toUpperCase();
+  const timeoutMs = method === 'GET' || method === 'HEAD' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     return await fetch(input, {

@@ -9,7 +9,7 @@ export const ManagementSection: React.FC = () => {
   return (
     <section className="py-12">
       {/* Мониторинг и Безопасность временно скрыты — настроим позже (MANAGEMENT_STEPS id 2, 3) */}
-      <div className="relative overflow-hidden rounded-[32px] border border-yellow-400/25 bg-gradient-to-br from-[#1e3a4c] via-[#122e41] to-[#0a1c2a] p-10 md:p-14 shadow-2xl">
+      <div className="relative overflow-hidden rounded-[20px] sm:rounded-[32px] border border-yellow-400/25 bg-gradient-to-br from-[#1e3a4c] via-[#122e41] to-[#0a1c2a] p-6 sm:p-10 md:p-14 shadow-2xl">
         <div className="absolute -top-24 -right-24 w-64 h-64 rounded-full bg-yellow-400/10 blur-3xl pointer-events-none" />
         <div className="absolute -bottom-20 -left-16 w-56 h-56 rounded-full bg-sky-400/10 blur-3xl pointer-events-none" />
 
@@ -36,7 +36,7 @@ export const ManagementSection: React.FC = () => {
 
           <button
             onClick={() => setIsModalOpen(true)}
-            className="shrink-0 px-10 py-5 rounded-2xl font-black text-lg uppercase tracking-wider bg-yellow-400 text-black hover:bg-yellow-300 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_40px_rgba(250,204,21,0.35)]"
+            className="w-full sm:w-auto shrink-0 px-6 sm:px-10 py-4 sm:py-5 rounded-2xl font-black text-base sm:text-lg uppercase tracking-wider bg-yellow-400 text-black hover:bg-yellow-300 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_40px_rgba(250,204,21,0.35)]"
           >
             {initiative.buttonText}
           </button>

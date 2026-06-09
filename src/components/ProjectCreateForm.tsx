@@ -11,13 +11,13 @@ import { EconomicEffectCalculator } from './EconomicEffectCalculator';
 import { FieldHint } from './FieldHint';
 import { TagMultiSelect } from './TagMultiSelect';
 import {
+  attachProjectImage,
   createProject,
   invalidateProjectsCache,
   invalidateSubmittedProjectsCache,
   formatProjectError,
   fetchUserTeams,
   LOCAL_PROJECT_IMAGE,
-  uploadProjectImage,
   type UserTeamOption,
 } from '../services/projectService';
 
@@ -166,20 +166,11 @@ export const ProjectCreateForm: React.FC = () => {
     setLoading(true);
     const clientRequestId = crypto.randomUUID();
     let imageWarning = '';
-    let imageUrl = LOCAL_PROJECT_IMAGE;
+    const pendingImage = imageFile;
 
     try {
-      if (imageFile) {
-        try {
-          setLoadingStage('Загрузка обложки...');
-          imageUrl = await uploadProjectImage(user.id, imageFile);
-        } catch (uploadError) {
-          imageWarning = formatProjectError(uploadError);
-        }
-      }
-
       setLoadingStage('Сохранение проекта...');
-      await createProject({
+      const created = await createProject({
         created_by: user.id,
         title: title.trim(),
         problem: problem.trim(),
@@ -198,7 +189,7 @@ export const ProjectCreateForm: React.FC = () => {
         team_id: selectedTeamId,
         team_name: selectedTeamName || authorName.trim() || 'Частная инициатива',
         rating_enabled: ratingEnabled,
-        image_url: imageUrl,
+        image_url: LOCAL_PROJECT_IMAGE,
         status: projectStatus,
         technologies,
         looking_for_team: lookingForTeam,
@@ -208,6 +199,15 @@ export const ProjectCreateForm: React.FC = () => {
 
       invalidateProjectsCache();
       invalidateSubmittedProjectsCache(user.id);
+
+      if (pendingImage) {
+        try {
+          setLoadingStage('Загрузка обложки...');
+          await attachProjectImage(created.id, user.id, pendingImage);
+        } catch (uploadError) {
+          imageWarning = formatProjectError(uploadError);
+        }
+      }
 
       if (imageWarning) {
         alert(

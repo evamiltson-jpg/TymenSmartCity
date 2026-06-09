@@ -5,7 +5,7 @@ import { FOOTER_LINKS } from '../constants';
 export const Footer: React.FC = () => {
   return (
     <footer className="bg-[#063553] pt-24 pb-12 text-white border-t border-white/5">
-      <div className="w-[81.25%] mx-auto">
+      <div className="page-container">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-12 mb-20">
           {Object.entries(FOOTER_LINKS).map(([title, links]) => (
             <div key={title}>

@@ -24,6 +24,8 @@ const submittedCacheKey = (userId: string) => `tsc_submitted_${userId}`;
 let lastPromoteAt = 0;
 let siteProjectsCache: { at: number; data: ProjectData[] } | null = null;
 let siteRefreshPromise: Promise<ProjectData[]> | null = null;
+const myProjectDetailCache = new Map<string, { at: number; data: MyProjectDetail }>();
+const MY_PROJECT_CACHE_TTL_MS = 60_000;
 
 const readStorageCache = <T>(key: string, ttlMs: number): T | null => {
   try {
@@ -51,7 +53,9 @@ export const readSubmittedProjectsCache = (userId: string): SubmittedProject[] |
 const isNetworkError = (error: unknown) => {
   if (typeof error !== 'object' || !error || !('message' in error)) return false;
   const message = String((error as { message: string }).message).toLowerCase();
-  return /failed to fetch|network|connection reset|err_connection|timeout/i.test(message);
+  return /failed to fetch|network|connection reset|err_connection|timeout|заняло слишком много времени/i.test(
+    message,
+  );
 };
 
 const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -99,6 +103,14 @@ export const invalidateSubmittedProjectsCache = (userId: string) => {
   } catch {
     // ignore
   }
+};
+
+export const invalidateMyProjectDetailCache = (projectId?: string) => {
+  if (projectId) {
+    myProjectDetailCache.delete(projectId);
+    return;
+  }
+  myProjectDetailCache.clear();
 };
 
 const baseUrl = import.meta.env.BASE_URL || '/';
@@ -575,6 +587,11 @@ const normalizeMyProject = (row: Record<string, unknown>): MyProjectDetail => ({
 });
 
 export const fetchMyProjectById = async (projectId: string, userId: string): Promise<MyProjectDetail | null> => {
+  const cached = myProjectDetailCache.get(projectId);
+  if (cached && Date.now() - cached.at < MY_PROJECT_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const { data, error } = await runReadQuery(() =>
     supabase
       .from('projects')
@@ -586,7 +603,10 @@ export const fetchMyProjectById = async (projectId: string, userId: string): Pro
 
   if (error) throw error;
   if (!data) return null;
-  return normalizeMyProject(data as Record<string, unknown>);
+
+  const project = normalizeMyProject(data as Record<string, unknown>);
+  myProjectDetailCache.set(projectId, { at: Date.now(), data: project });
+  return project;
 };
 
 export const updateMyProject = async (
@@ -609,6 +629,7 @@ export const updateMyProject = async (
     .eq('created_by', userId);
 
   if (error) throw error;
+  invalidateMyProjectDetailCache(projectId);
 };
 
 export const deleteMyProject = async (projectId: string, userId: string) => {
@@ -622,6 +643,7 @@ export const deleteMyProject = async (projectId: string, userId: string) => {
     .eq('created_by', userId);
 
   if (error) throw error;
+  invalidateMyProjectDetailCache(projectId);
 };
 
 export const fetchUserTeams = async (userId: string): Promise<UserTeamOption[]> => {
@@ -754,17 +776,23 @@ const buildInsertPayload = (payload: ProjectInsertPayload, clientRequestId: stri
   };
 };
 
+const findProjectByClientRequestId = async (clientRequestId: string) => {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id')
+    .eq('client_request_id', clientRequestId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as { id: string } | null;
+};
+
 const insertProjectRow = async (row: Record<string, unknown>) => {
   const { data, error } = await supabase.from('projects').insert([row]).select('id').single();
 
   if (error?.code === '23505' && row.client_request_id) {
-    const { data: existing, error: fetchError } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('client_request_id', String(row.client_request_id))
-      .maybeSingle();
-
-    if (!fetchError && existing) return existing as { id: string };
+    const existing = await findProjectByClientRequestId(String(row.client_request_id));
+    if (existing) return existing;
   }
 
   if (error) throw error;
@@ -806,22 +834,57 @@ export const createProject = async (payload: ProjectInsertPayload, clientRequest
     published_at: full.published_at,
   };
 
+  const recoverCreatedProject = async () => {
+    const existing = await findProjectByClientRequestId(clientRequestId);
+    if (existing) return existing;
+    return null;
+  };
+
   let created: { id: string };
   try {
     created = await insertProjectRow(full as Record<string, unknown>);
   } catch (error) {
-    if (!isColumnError(error)) throw error;
-    try {
-      created = await insertProjectRow(minimal);
-    } catch (minimalError) {
-      if (!isColumnError(minimalError)) throw minimalError;
-      created = await insertProjectRow(core);
+    if (isNetworkError(error)) {
+      const recovered = await recoverCreatedProject();
+      if (recovered) {
+        created = recovered;
+      } else if (!isColumnError(error)) {
+        throw error;
+      } else {
+        created = await insertProjectRow(minimal);
+      }
+    } else if (!isColumnError(error)) {
+      throw error;
+    } else {
+      try {
+        created = await insertProjectRow(minimal);
+      } catch (minimalError) {
+        if (isNetworkError(minimalError)) {
+          const recovered = await recoverCreatedProject();
+          if (recovered) {
+            created = recovered;
+          } else {
+            throw minimalError;
+          }
+        } else if (!isColumnError(minimalError)) {
+          throw minimalError;
+        } else {
+          created = await insertProjectRow(core);
+        }
+      }
     }
   }
 
   invalidateProjectsCache();
   invalidateSubmittedProjectsCache(String(full.created_by));
   return created;
+};
+
+export const attachProjectImage = async (projectId: string, userId: string, file: File) => {
+  const imageUrl = await updateProjectImage(projectId, userId, file);
+  invalidateMyProjectDetailCache(projectId);
+  invalidateSubmittedProjectsCache(userId);
+  return imageUrl;
 };
 
 export interface TeamCreatePayload {

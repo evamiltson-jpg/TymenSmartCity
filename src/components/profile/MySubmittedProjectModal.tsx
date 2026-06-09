@@ -45,8 +45,8 @@ export const MySubmittedProjectModal: React.FC<MySubmittedProjectModalProps> = (
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setLoading(true);
     setError('');
+    setLoading(true);
     fetchMyProjectById(projectId, userId)
       .then((data) => {
         if (!data) {

@@ -22,7 +22,9 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onNavigate }) =>
 
     const result = await resetPassword(email);
     if (result.success) {
-      setSuccessMessage('Инструкции по сбросу пароля отправлены на ваш email.');
+      setSuccessMessage(
+        'Если аккаунт с таким email существует, письмо отправлено. Проверьте «Входящие», «Спам» и «Промоакции». На бесплатном тарифе Supabase письма иногда приходят с задержкой до 10–15 минут или не доходят без настройки SMTP.',
+      );
     } else {
       setError(result.error || 'Не удалось отправить письмо.');
     }

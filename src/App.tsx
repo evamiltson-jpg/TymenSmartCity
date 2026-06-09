@@ -203,7 +203,7 @@ const AppContent: React.FC = () => {
   return (
     <div className="bg-[#063553] text-white min-h-screen selection:bg-yellow-400 selection:text-black transition-colors duration-500">
       {!AUTH_PAGES.includes(currentPage as (typeof AUTH_PAGES)[number]) && (
-        <div className="w-[81.25%] mx-auto">
+        <div className="page-container">
           <Header 
             onNavigate={navigate} 
             onOpenChat={() => setIsChatOpen(true)} 
@@ -212,7 +212,7 @@ const AppContent: React.FC = () => {
       )}
       
       {!AUTH_PAGES.includes(currentPage as (typeof AUTH_PAGES)[number]) && (
-        <div className="w-[81.25%] mx-auto">
+        <div className="page-container">
           {renderContent()}
         </div>
       )}

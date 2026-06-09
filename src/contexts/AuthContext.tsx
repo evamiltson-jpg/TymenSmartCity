@@ -3,6 +3,7 @@ import type { User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../services/supabase';
 import { uploadProfileFile, buildProfilePatch, buildProfileRow } from '../services/profileService';
 import type { UserProfile } from '../types/profile';
+import { getAuthRedirectUrl, normalizeAuthEmail } from '../utils/authRedirect';
 import {
   clearPendingQuizResult,
   readPendingQuizResult,
@@ -279,7 +280,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signUp = async (email: string, password: string) => {
     try {
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const normalizedEmail = normalizeAuthEmail(email);
+      const { data, error } = await supabase.auth.signUp({ email: normalizedEmail, password });
 
       if (error) return { success: false, error: translateAuthError(error.message) };
 
@@ -304,7 +306,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const normalizedEmail = normalizeAuthEmail(email);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
       if (error) return { success: false, error: translateAuthError(error.message) };
 
       if (data.user) {
@@ -334,8 +340,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const resetPassword = async (email: string) => {
     try {
-      const redirectTo = `${window.location.origin}${window.location.pathname}`;
-      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+      const normalizedEmail = normalizeAuthEmail(email);
+      const redirectTo = getAuthRedirectUrl();
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, { redirectTo });
       if (error) return { success: false, error: translateAuthError(error.message) };
       return { success: true };
     } catch (error: unknown) {

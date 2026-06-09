@@ -44,7 +44,7 @@ export const NewsSection: React.FC<NewsSectionProps> = ({ isFullPage = true, lim
   return (
     <section className="pt-6 pb-12">
       <div className="flex flex-col md:flex-row justify-between items-end mb-10 gap-6">
-        <h2 className="text-3xl font-bold text-white tracking-tight">
+        <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
           {isFullPage ? 'Все цифровые новости' : 'Цифровые новости'}
         </h2>
       </div>

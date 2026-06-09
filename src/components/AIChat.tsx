@@ -165,8 +165,7 @@ export const AIChat: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isO
 
     return (
         <>
-            <div className="fixed bottom-10 right-10 z-[200] flex flex-col bg-[#122e41] border border-white/10 rounded-[30px] shadow-2xl animate-in slide-in-from-bottom-5 duration-500 overflow-hidden"
-                style={{ width: '400px', height: '600px', maxWidth: '90vw', resize: 'both' }}>
+            <div className="fixed bottom-4 right-4 sm:bottom-10 sm:right-10 z-[200] flex flex-col bg-[#122e41] border border-white/10 rounded-[20px] sm:rounded-[30px] shadow-2xl animate-in slide-in-from-bottom-5 duration-500 overflow-hidden w-[calc(100vw-2rem)] sm:w-[400px] h-[min(600px,calc(100vh-6rem))] sm:resize sm:resize-both">
                 
                 {/* Header */}
                 <div className="flex-none p-5 border-b border-white/10 flex justify-between items-center bg-[#0b2234]">

@@ -166,16 +166,25 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     }
   }, [user, userProfile]);
 
-  const loadSubmittedProjects = async () => {
+  const loadSubmittedProjects = async (options?: { background?: boolean }) => {
     if (!user || authLoading) return;
-    setLoadingSubmitted(true);
+
+    const hasVisibleProjects =
+      submittedProjects.length > 0 || Boolean(readSubmittedProjectsCache(user.id)?.length);
+
+    if (!options?.background && !hasVisibleProjects) {
+      setLoadingSubmitted(true);
+    }
+
     setSaveError('');
     try {
       const submittedRes = await fetchMySubmittedProjects(user.id);
       setSubmittedProjects(submittedRes);
     } catch (error) {
       console.error('Error loading submitted projects:', error);
-      setSaveError(formatProjectError(error));
+      if (!hasVisibleProjects) {
+        setSaveError(formatProjectError(error));
+      }
     } finally {
       setLoadingSubmitted(false);
     }
@@ -214,8 +223,6 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     } finally {
       setLoadingData(false);
     }
-
-    void loadSubmittedProjects();
   };
 
   useEffect(() => {
@@ -225,7 +232,14 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
   }, [user]);
 
   useEffect(() => {
-    if (authLoading) return;
+    if (authLoading || !user) return;
+    const cached = readSubmittedProjectsCache(user.id);
+    if (cached?.length) {
+      setSubmittedProjects(cached);
+      void loadSubmittedProjects({ background: true });
+    } else {
+      void loadSubmittedProjects();
+    }
     void loadUserData();
   }, [user, authLoading]);
 
@@ -752,7 +766,7 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
                     </button>
                   </div>
                 )}
-                {loadingSubmitted ? (
+                {loadingSubmitted && submittedProjects.length === 0 ? (
                   <p className="text-gray-500 text-sm">Загрузка проектов...</p>
                 ) : submittedProjects.length === 0 && !saveError ? (
                   <div className="bg-[#122e41] p-8 rounded-[24px] border border-white/5 text-center text-gray-400 text-sm space-y-3">
