@@ -48,7 +48,7 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ hideHeader = false }
   ), [activeCat, services]);
 
   return (
-    <main className={`${hideHeader ? 'py-4' : 'py-12'} animate-in fade-in duration-700`}>
+    <main className={`${hideHeader ? 'py-3 sm:py-4' : 'py-8 sm:py-12'} animate-in fade-in duration-700`}>
       
       {!hideHeader && (
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-6">
@@ -63,7 +63,7 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ hideHeader = false }
         </div>
       )}
       
-      <div className="flex flex-wrap gap-2 sm:gap-3 mb-8 sm:mb-12">
+      <div className="flex flex-wrap gap-2 sm:gap-3 mb-5 sm:mb-12">
         {categories.map(cat => (
           <button 
             key={cat}
@@ -80,16 +80,16 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ hideHeader = false }
         ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-8">
         {loading ? (
-           [1, 2, 3, 4].map(i => <div key={i} className="bg-[#122e41] h-80 rounded-[32px] animate-pulse border border-white/5"></div>)
+           [1, 2, 3, 4].map(i => <div key={i} className="bg-[#122e41] h-52 sm:h-80 rounded-2xl sm:rounded-[32px] animate-pulse border border-white/5"></div>)
         ) : filtered.length > 0 ? (
           filtered.map(service => {
             const serviceUrl = getServiceUrl(service);
 
             return (
-              <div key={service.id} className="bg-[#122e41] rounded-[32px] border border-white/5 hover:border-yellow-400/30 transition-all group overflow-hidden flex flex-col shadow-2xl">
-                <div className="h-44 relative overflow-hidden bg-gray-800">
+              <div key={service.id} className="bg-[#122e41] rounded-2xl sm:rounded-[32px] border border-white/5 hover:border-yellow-400/30 transition-all group overflow-hidden flex flex-col shadow-xl sm:shadow-2xl">
+                <div className="h-28 sm:h-44 relative overflow-hidden bg-gray-800">
                   <img 
                     src={service.imageUrl || fallbackImage}
                     alt={service.title}
@@ -102,9 +102,9 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ hideHeader = false }
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#122e41] to-transparent"></div>
                 </div>
-                <div className="p-7 flex flex-col flex-grow">
-                  <h3 className="text-xl font-bold mb-2 group-hover:text-yellow-400 transition-colors">{service.title}</h3>
-                  <p className="text-gray-400 text-sm mb-6 line-clamp-3 flex-grow">{service.description || service.desc}</p>
+                <div className="p-4 sm:p-7 flex flex-col flex-grow">
+                  <h3 className="text-base sm:text-xl font-bold mb-1.5 sm:mb-2 group-hover:text-yellow-400 transition-colors line-clamp-2">{service.title}</h3>
+                  <p className="text-gray-400 text-xs sm:text-sm mb-4 sm:mb-6 line-clamp-2 sm:line-clamp-3 flex-grow">{service.description || service.desc}</p>
                   <a
                     href={serviceUrl}
                     target="_blank"
@@ -113,7 +113,7 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ hideHeader = false }
                     onClick={(e) => {
                       if (serviceUrl === '#') e.preventDefault();
                     }}
-                    className="w-full inline-flex justify-center bg-yellow-400/10 hover:bg-yellow-400 text-yellow-400 hover:text-black py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all"
+                    className="w-full inline-flex justify-center bg-yellow-400/10 hover:bg-yellow-400 text-yellow-400 hover:text-black py-2.5 sm:py-3 rounded-xl sm:rounded-2xl font-black text-[9px] sm:text-[10px] uppercase tracking-widest transition-all"
                   >
                     {service.buttonText || service.button_text || 'Подробнее'}
                   </a>

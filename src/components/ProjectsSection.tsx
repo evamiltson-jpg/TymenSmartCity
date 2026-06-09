@@ -78,31 +78,31 @@ export const ProjectsSection: React.FC = () => {
   }, [activeCategory, allProjects]);
 
   return (
-    <section className="py-12">
-      <div className="flex justify-between items-end mb-10 gap-4">
+    <section className="py-8 sm:py-12">
+      <div className="flex justify-between items-end mb-6 sm:mb-10 gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-white tracking-tight">{t(lang, 'projects.title')}</h2>
-          <p className="text-gray-500 mt-2">Топ проектов по рейтингу — полный каталог в разделе «Проекты»</p>
+          <h2 className="text-xl sm:text-3xl font-bold text-white tracking-tight">{t(lang, 'projects.title')}</h2>
+          <p className="text-gray-500 mt-1 sm:mt-2 text-xs sm:text-base">Топ проектов по рейтингу — полный каталог в разделе «Проекты»</p>
         </div>
         {syncing && <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">Обновление...</p>}
       </div>
 
-      <div className="flex flex-wrap gap-3 mb-10">
+      <div className="flex flex-wrap gap-2 sm:gap-3 mb-6 sm:mb-10">
         {categories.map((cat) => (
-          <button key={cat} type="button" onClick={() => setActiveCategory(cat)} className={filterPillClass(activeCategory === cat)}>
+          <button key={cat} type="button" onClick={() => setActiveCategory(cat)} className={`${filterPillClass(activeCategory === cat)} !px-3.5 !py-2 !text-xs sm:!px-6 sm:!py-2.5 sm:!text-sm`}>
             {cat}
           </button>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
         {filteredProjects.length > 0 ? (
           filteredProjects.map((project) => (
             <div
               key={project.id}
-              className="bg-[#122e41] rounded-[32px] border border-white/5 hover:border-yellow-400/30 transition-all group overflow-hidden flex flex-col shadow-2xl"
+              className="bg-[#122e41] rounded-2xl sm:rounded-[32px] border border-white/5 hover:border-yellow-400/30 transition-all group overflow-hidden flex flex-col shadow-xl sm:shadow-2xl"
             >
-              <div className="h-44 relative overflow-hidden bg-gray-800">
+              <div className="h-28 sm:h-44 relative overflow-hidden bg-gray-800">
                 <img
                   src={getProjectImageUrl(project.image_url)}
                   className="w-full h-full object-cover grayscale-[0.5] group-hover:grayscale-0 group-hover:scale-110 transition-all duration-700"
@@ -114,12 +114,12 @@ export const ProjectsSection: React.FC = () => {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#122e41] to-transparent"></div>
               </div>
-              <div className="p-7 flex flex-col flex-grow">
-                <h3 className="text-xl font-bold mb-2 group-hover:text-yellow-400 transition-colors line-clamp-2">
+              <div className="p-4 sm:p-7 flex flex-col flex-grow">
+                <h3 className="text-base sm:text-xl font-bold mb-1.5 sm:mb-2 group-hover:text-yellow-400 transition-colors line-clamp-2">
                   {project.title}
                 </h3>
-                <p className="text-gray-400 text-sm mb-4 line-clamp-3 flex-grow">{project.description}</p>
-                <div className="flex justify-between items-center mb-4">
+                <p className="text-gray-400 text-xs sm:text-sm mb-3 sm:mb-4 line-clamp-2 sm:line-clamp-3 flex-grow">{project.description}</p>
+                <div className="flex justify-between items-center mb-3 sm:mb-4">
                   <span className={`text-[9px] font-bold uppercase tracking-widest px-2 py-1 rounded-lg border ${getStatusStyle(project.status)}`}>
                     {project.status}
                   </span>
@@ -127,7 +127,7 @@ export const ProjectsSection: React.FC = () => {
                     ★ {project.rating > 0 ? project.rating.toFixed(1) : project.votes}
                   </span>
                 </div>
-                <button type="button" onClick={() => setSelectedProject(project)} className={actionButtonClass}>
+                <button type="button" onClick={() => setSelectedProject(project)} className={`${actionButtonClass} !py-2.5 sm:!py-3`}>
                   Подробнее
                 </button>
               </div>
