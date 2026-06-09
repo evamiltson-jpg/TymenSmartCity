@@ -1,6 +1,6 @@
 import React from 'react';
 import { getProjectImageUrl } from '../services/projectService';
-import { getLocalVoteBonus } from '../services/projectVoteService';
+import { computeDisplayProjectStats } from '../services/projectRatingService';
 import type { ProjectData } from '../types';
 import { ProjectStatusBadge } from './ProjectStatusBadge';
 
@@ -21,9 +21,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
   as = 'div',
 }) => {
   const imageMeta = { id: project.id, title: project.title, category: project.category };
-  const voteBonus = getLocalVoteBonus(String(project.id));
-  const displayVotes = project.votes + voteBonus;
-  const ratingLabel = project.rating > 0 ? project.rating.toFixed(1) : String(displayVotes);
+  const { rating, reviewCount } = computeDisplayProjectStats(project);
+  const ratingLabel = rating > 0 ? rating.toFixed(1) : '—';
 
   const content = (
     <>
@@ -68,7 +67,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         )}
 
         <div className="flex justify-between items-center pt-3 border-t border-white/10 text-xs sm:text-sm font-semibold">
-          <span className="text-gray-400 truncate mr-2">{displayVotes} голосов</span>
+          <span className="text-gray-400 truncate mr-2">{reviewCount} оценок</span>
           <span className="text-yellow-400 shrink-0 flex items-center gap-1">
             <span className="text-base leading-none">★</span>
             <span>{ratingLabel}</span>

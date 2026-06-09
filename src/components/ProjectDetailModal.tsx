@@ -5,13 +5,15 @@ import { ProjectDetailContent } from './ProjectDetailContent';
 interface ProjectDetailModalProps {
   project: ProjectData;
   onClose: () => void;
-  onVoted?: () => void;
+  onRated?: () => void;
+  onNavigate?: (page: string) => void;
 }
 
 export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
   project,
   onClose,
-  onVoted,
+  onRated,
+  onNavigate,
 }) => (
   <div
     className="fixed inset-0 z-[300] flex items-start justify-center p-4 pt-6 sm:pt-10 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto"
@@ -31,7 +33,11 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
       </button>
 
       <div className="p-5 sm:p-6">
-        <ProjectDetailContent project={project} onVoted={onVoted} />
+        <ProjectDetailContent
+          project={project}
+          onRated={onRated}
+          onNavigate={onNavigate}
+        />
       </div>
     </div>
   </div>

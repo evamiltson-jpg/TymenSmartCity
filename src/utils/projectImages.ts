@@ -2,27 +2,19 @@ import { PROJECTS_LIST } from '../constants';
 
 const baseUrl = import.meta.env.BASE_URL || './';
 
-const localImage = (file: string) => `${baseUrl}project_images/${file}`.replace(/\/+/g, '/');
-
-const LOCAL_BY_TITLE: Record<string, string> = {
-  'SmartTraffic AI': localImage('traffic.jpg'),
-  'EcoBin Sensors': localImage('ecology.jpg'),
-  SolarBench: localImage('urban.jpg'),
-  'HelpHand App': localImage('social.jpg'),
-  SkyPatrol: localImage('safety.jpg'),
-  'EduVR History': localImage('education.png'),
+let manifestCache: Record<string, string> | null = {
+  'SmartTraffic AI': '/project_images/bf04bcf2c9bb.jpg',
+  'EcoBin Sensors': '/project_images/f5815adf413d.jpg',
+  SolarBench: '/project_images/8d9f2735baef.jpg',
+  'HelpHand App': '/project_images/d55114905f66.jpg',
+  SkyPatrol: '/project_images/cf9cc369bf9c.jpg',
+  'EduVR History': '/project_images/f53e000b64a0.jpg',
 };
 
-const LOCAL_BY_CATEGORY: Record<string, string> = {
-  Транспорт: localImage('traffic.jpg'),
-  Экология: localImage('ecology.jpg'),
-  Урбанистика: localImage('urban.jpg'),
-  Социальное: localImage('social.jpg'),
-  Безопасность: localImage('safety.jpg'),
-  Образование: localImage('education.png'),
+const normalizePath = (path: string) => {
+  const cleaned = path.startsWith('/') ? path.slice(1) : path;
+  return `${baseUrl}${cleaned}`.replace(/\/+/g, '/');
 };
-
-const LOCAL_POOL = Object.values(LOCAL_BY_TITLE);
 
 const hashString = (value: string) => {
   let hash = 0;
@@ -33,15 +25,33 @@ const hashString = (value: string) => {
   return Math.abs(hash);
 };
 
+/** Как в parsers/news_parser.py — стабильное фото с Picsum по seed. */
+export const getPicsumStockUrl = (seed: string) =>
+  `https://picsum.photos/seed/${hashString(seed)}/800/600`;
+
 export const isPlaceholderProjectImage = (url?: string | null) => {
   if (!url?.trim()) return true;
   const lower = url.toLowerCase();
-  return (
-    lower.includes('city_logo') ||
-    lower.includes('city-logo') ||
-    lower.includes('unsplash.com') ||
-    lower.includes('picsum.photos')
-  );
+  return lower.includes('city_logo') || lower.includes('city-logo');
+};
+
+const manifestPathForTitle = (title: string) => {
+  if (typeof window === 'undefined') return null;
+  return manifestCache?.[title] ?? null;
+};
+
+export const preloadProjectImageManifest = async () => {
+  if (manifestCache) return manifestCache;
+  try {
+    const url = normalizePath('project_images.json');
+    const res = await fetch(url);
+    if (res.ok) {
+      manifestCache = (await res.json()) as Record<string, string>;
+    }
+  } catch {
+    manifestCache = {};
+  }
+  return manifestCache ?? {};
 };
 
 export const resolveProjectImageUrl = (
@@ -50,20 +60,27 @@ export const resolveProjectImageUrl = (
 ) => {
   const title = meta.title?.trim();
 
-  if (title && LOCAL_BY_TITLE[title]) return LOCAL_BY_TITLE[title];
+  if (title) {
+    const fromManifest = manifestPathForTitle(title);
+    if (fromManifest) return normalizePath(fromManifest);
+  }
 
   const fromList = PROJECTS_LIST.find(
     (p) =>
       (meta.id != null && String(p.id) === String(meta.id)) ||
       (title && p.title.toLowerCase() === title.toLowerCase()),
   );
-  if (fromList?.title && LOCAL_BY_TITLE[fromList.title]) return LOCAL_BY_TITLE[fromList.title];
 
-  if (url?.trim() && !isPlaceholderProjectImage(url)) return url.trim();
+  if (fromList?.title) {
+    const manifestHit = manifestPathForTitle(fromList.title);
+    if (manifestHit) return normalizePath(manifestHit);
+  }
 
-  const category = meta.category?.trim();
-  if (category && LOCAL_BY_CATEGORY[category]) return LOCAL_BY_CATEGORY[category];
+  if (url?.trim() && !isPlaceholderProjectImage(url)) {
+    if (url.startsWith('http') || url.startsWith('data:')) return url.trim();
+    return normalizePath(url);
+  }
 
-  const seed = String(meta.id ?? title ?? category ?? 'default');
-  return LOCAL_POOL[hashString(seed) % LOCAL_POOL.length] || localImage('default.jpg');
+  const seed = title || fromList?.title || meta.category || String(meta.id ?? 'project');
+  return getPicsumStockUrl(seed);
 };

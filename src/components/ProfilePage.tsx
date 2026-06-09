@@ -15,6 +15,11 @@ import {
   uploadProfileFile,
 } from '../services/profileService';
 import {
+  cancelProjectApplication,
+  APPLICATION_STATUS_LABELS,
+  type ProjectApplication,
+} from '../services/projectApplicationService';
+import {
   fetchMySubmittedProjects,
   formatProjectError,
   readSubmittedProjectsCache,
@@ -33,7 +38,7 @@ interface Application {
   user_id: string;
   id: string;
   project_id: string;
-  status: 'pending' | 'accepted' | 'rejected';
+  status: ProjectApplication['status'];
   project_title: string;
   submitted_at: string;
 }
@@ -350,6 +355,17 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     await createUserProject(user.id, payload);
     await loadUserData();
     setSaveMessage('Проект создан');
+  };
+
+  const handleCancelApplication = async (applicationId: string) => {
+    if (!user || !confirm('Отменить заявку?')) return;
+    const result = await cancelProjectApplication(user.id, applicationId);
+    if (result.ok) {
+      setApplications((prev) => prev.filter((a) => a.id !== applicationId));
+      setSaveMessage(result.message);
+    } else {
+      setSaveError(result.message);
+    }
   };
 
   const handleCreateTeam = async (payload: { team_name: string; description: string }) => {
@@ -721,14 +737,33 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
           ) : (
             <div className="space-y-4">
               {applications.map((app) => (
-                <div key={app.id} className="bg-[#122e41] p-6 rounded-[32px] border border-white/5 flex items-center justify-between">
+                <div key={app.id} className="bg-[#122e41] p-6 rounded-2xl border border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
                     <h3 className="font-bold text-lg text-white mb-1">{app.project_title}</h3>
                     <p className="text-gray-400 text-xs">Подана: {new Date(app.submitted_at).toLocaleDateString('ru-RU')}</p>
                   </div>
-                  <span className={`px-4 py-2 rounded-xl font-bold uppercase text-[10px] ${app.status === 'accepted' ? 'text-green-400 bg-green-500/10' : app.status === 'rejected' ? 'text-red-400 bg-red-500/10' : 'text-yellow-400 bg-yellow-400/10'}`}>
-                    {app.status === 'accepted' ? 'Одобрена' : app.status === 'rejected' ? 'Отклонена' : 'На рассмотрении'}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`px-4 py-2 rounded-xl font-bold uppercase text-xs ${
+                        app.status === 'accepted'
+                          ? 'text-green-400 bg-green-500/10'
+                          : app.status === 'rejected'
+                            ? 'text-red-400 bg-red-500/10'
+                            : 'text-yellow-400 bg-yellow-400/10'
+                      }`}
+                    >
+                      {APPLICATION_STATUS_LABELS[app.status]}
+                    </span>
+                    {app.status === 'pending' && (
+                      <button
+                        type="button"
+                        onClick={() => void handleCancelApplication(app.id)}
+                        className="text-xs font-bold text-rose-400 hover:text-rose-300 uppercase"
+                      >
+                        Отменить
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

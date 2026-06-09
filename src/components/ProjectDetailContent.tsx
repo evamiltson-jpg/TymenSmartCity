@@ -1,62 +1,113 @@
 import React, { useEffect, useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import type { ProjectData } from '../types';
 import { getProjectImageUrl } from '../services/projectService';
 import {
-  getLocalVoteBonus,
-  getRemainingVotesToday,
-  hasVotedToday,
-  voteForProject,
-} from '../services/projectVoteService';
+  APPLICATION_STATUS_LABELS,
+  cancelProjectApplication,
+  fetchApplicationForProject,
+  submitProjectApplication,
+  type ProjectApplication,
+} from '../services/projectApplicationService';
+import {
+  computeDisplayProjectStats,
+  getRemainingRatingsToday,
+  getUserStarRating,
+  rateProject,
+} from '../services/projectRatingService';
+import { ProjectStarRating } from './ProjectStarRating';
 import { ProjectStatusBadge } from './ProjectStatusBadge';
 
 interface ProjectDetailContentProps {
   project: ProjectData;
-  onApply?: () => void;
-  onVoted?: () => void;
+  onApplySuccess?: () => void;
+  onRated?: () => void;
+  onNavigate?: (page: string) => void;
 }
 
 export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
   project,
-  onApply,
-  onVoted,
+  onApplySuccess,
+  onRated,
+  onNavigate,
 }) => {
+  const { user, isAuthenticated } = useAuth();
   const imageMeta = { id: project.id, title: project.title, category: project.category };
-  const isApplyVisible = ['В разработке', 'Тестирование', 'Готов к внедрению', 'Идея'].includes(project.status);
-  const ratingLabel = project.rating > 0 ? project.rating.toFixed(1) : '—';
+  const isApplyVisible = ['В разработке', 'Тестирование', 'Готов к внедрению', 'Идея'].includes(
+    project.status,
+  );
 
-  const [votes, setVotes] = useState(project.votes + getLocalVoteBonus(String(project.id)));
-  const [voted, setVoted] = useState(hasVotedToday(String(project.id)));
-  const [remaining, setRemaining] = useState(getRemainingVotesToday());
-  const [voteMessage, setVoteMessage] = useState('');
-  const [voting, setVoting] = useState(false);
+  const [stats, setStats] = useState(() => computeDisplayProjectStats(project));
+  const [userStars, setUserStars] = useState<number | null>(() => getUserStarRating(String(project.id)));
+  const [remaining, setRemaining] = useState(getRemainingRatingsToday());
+  const [ratingMessage, setRatingMessage] = useState('');
+  const [ratingBusy, setRatingBusy] = useState(false);
+
+  const [application, setApplication] = useState<ProjectApplication | null>(null);
+  const [applyMessage, setApplyMessage] = useState('');
+  const [applyBusy, setApplyBusy] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
 
   useEffect(() => {
-    setVotes(project.votes + getLocalVoteBonus(String(project.id)));
-    setVoted(hasVotedToday(String(project.id)));
-    setRemaining(getRemainingVotesToday());
-  }, [project.id, project.votes]);
+    setStats(computeDisplayProjectStats(project));
+    setUserStars(getUserStarRating(String(project.id)));
+    setRemaining(getRemainingRatingsToday());
+  }, [project]);
 
-  const handleVote = async () => {
-    setVoting(true);
-    setVoteMessage('');
-    const result = await voteForProject(String(project.id));
-    setVoting(false);
-    setVoteMessage(result.message);
+  useEffect(() => {
+    if (!user) {
+      setApplication(null);
+      return;
+    }
+    fetchApplicationForProject(user.id, String(project.id))
+      .then(setApplication)
+      .catch(() => setApplication(null));
+  }, [user, project.id]);
+
+  const handleRate = async (stars: number) => {
+    setRatingBusy(true);
+    setRatingMessage('');
+    const result = await rateProject(project, stars);
+    setRatingBusy(false);
+    setRatingMessage(result.message);
     if (result.ok) {
-      const newVotes = votes + 1;
-      setVotes(newVotes);
-      setVoted(true);
-      setRemaining(getRemainingVotesToday());
-      onVoted?.();
+      setUserStars(stars);
+      setStats(computeDisplayProjectStats(project));
+      setRemaining(getRemainingRatingsToday());
+      onRated?.();
     }
   };
 
-  const handleApply = () => {
-    if (onApply) {
-      onApply();
+  const handleApply = async () => {
+    if (!isAuthenticated || !user) {
+      setApplyMessage('Войдите в аккаунт, чтобы подать заявку.');
+      onNavigate?.('login');
       return;
     }
-    alert(`Спасибо! Ваша заявка на участие в проекте «${project.title}» отправлена куратору.`);
+
+    setApplyBusy(true);
+    setApplyMessage('');
+    const result = await submitProjectApplication(user.id, String(project.id), project.title);
+    setApplyBusy(false);
+    setApplyMessage(result.message);
+    if (result.ok && result.application) {
+      setApplication(result.application);
+      onApplySuccess?.();
+    }
+  };
+
+  const handleCancelApplication = async () => {
+    if (!user || !application) return;
+    if (!confirm('Отменить заявку на участие в проекте?')) return;
+
+    setCancelBusy(true);
+    const result = await cancelProjectApplication(user.id, application.id);
+    setCancelBusy(false);
+    setApplyMessage(result.message);
+    if (result.ok) {
+      setApplication(null);
+      onApplySuccess?.();
+    }
   };
 
   return (
@@ -85,18 +136,24 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
 
           <p className="text-sm text-gray-400 mb-1">Команда</p>
           <p className="text-lg sm:text-xl font-bold text-yellow-400 mb-3">{project.team}</p>
-
-          <div className="flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-1.5 bg-yellow-400/10 text-yellow-400 px-3 py-1.5 rounded-lg text-sm font-bold">
-              ★ {ratingLabel}
-              <span className="text-yellow-400/70 font-normal">/ 5.0</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5 bg-white/5 text-gray-200 px-3 py-1.5 rounded-lg text-sm font-semibold">
-              🗳 {votes} голосов
-            </span>
-          </div>
         </div>
       </div>
+
+      <ProjectStarRating
+        value={userStars}
+        average={stats.rating}
+        reviewCount={stats.reviewCount}
+        disabled={ratingBusy || (userStars == null && remaining <= 0)}
+        onRate={handleRate}
+      />
+      <p className="text-xs text-gray-500">
+        {remaining > 0
+          ? `Можно оценить ещё ${remaining} новых проектов сегодня (лимит 5).`
+          : userStars == null
+            ? 'Лимит новых оценок на сегодня исчерпан.'
+            : 'Повторно нажмите звезды, чтобы изменить свою оценку.'}
+      </p>
+      {ratingMessage && <p className="text-sm text-gray-300">{ratingMessage}</p>}
 
       <p className="text-gray-300 text-sm sm:text-base leading-relaxed">{project.desc}</p>
 
@@ -116,30 +173,47 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
-        <button
-          type="button"
-          onClick={handleVote}
-          disabled={voting || voted || remaining <= 0}
-          className="bg-sky-500 hover:bg-sky-400 disabled:bg-white/10 disabled:text-gray-500 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors"
-        >
-          {voted ? 'Вы проголосовали' : voting ? 'Отправка...' : 'Проголосовать'}
-        </button>
-        <span className="text-xs text-gray-500">
-          {remaining > 0 ? `Осталось голосов сегодня: ${remaining} из 5` : 'Лимит на сегодня исчерпан'}
-        </span>
-      </div>
-
-      {voteMessage && <p className="text-sm text-gray-300">{voteMessage}</p>}
-
       {isApplyVisible && (
-        <button
-          type="button"
-          onClick={handleApply}
-          className="w-full sm:w-auto bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2.5 px-6 rounded-xl text-sm transition-colors"
-        >
-          Подать заявку
-        </button>
+        <div className="space-y-3 pt-1 border-t border-white/10">
+          {application ? (
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <span
+                className={`inline-flex px-4 py-2 rounded-xl font-bold text-xs uppercase ${
+                  application.status === 'accepted'
+                    ? 'text-green-400 bg-green-500/10'
+                    : 'text-yellow-400 bg-yellow-400/10'
+                }`}
+              >
+                {APPLICATION_STATUS_LABELS[application.status]}
+              </span>
+              {application.status === 'pending' && (
+                <button
+                  type="button"
+                  onClick={handleCancelApplication}
+                  disabled={cancelBusy}
+                  className="text-sm text-rose-400 hover:text-rose-300 font-semibold"
+                >
+                  {cancelBusy ? 'Отмена...' : 'Отменить заявку'}
+                </button>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleApply}
+              disabled={applyBusy}
+              className="w-full sm:w-auto bg-yellow-400 hover:bg-yellow-500 disabled:opacity-60 text-black font-bold py-2.5 px-6 rounded-xl text-sm transition-colors"
+            >
+              {applyBusy ? 'Отправка...' : 'Подать заявку'}
+            </button>
+          )}
+          {applyMessage && <p className="text-sm text-gray-300">{applyMessage}</p>}
+          {application && (
+            <p className="text-xs text-gray-500">
+              Статус заявки также доступен в личном кабинете → «Заявки».
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

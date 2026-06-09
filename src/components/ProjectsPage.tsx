@@ -10,6 +10,7 @@ import {
   formatProjectError,
   getSiteProjectsFallback,
 } from '../services/projectService';
+import { preloadProjectImageManifest } from '../utils/projectImages';
 
 type TabId = 'portfolio' | 'search' | 'create-project' | 'create-team';
 
@@ -93,7 +94,7 @@ const ProjectPortfolioView: React.FC<{
   );
 };
 
-export const ProjectsPage: React.FC = () => {
+export const ProjectsPage: React.FC<{ onNavigate?: (page: string) => void }> = ({ onNavigate }) => {
   const [activeTab, setActiveTab] = useState<TabId>('portfolio');
   const [allProjects, setAllProjects] = useState<ProjectData[]>(() => getSiteProjectsFallback());
   const [loading, setLoading] = useState(true);
@@ -102,6 +103,7 @@ export const ProjectsPage: React.FC = () => {
   const [voteRefresh, setVoteRefresh] = useState(0);
 
   useEffect(() => {
+    void preloadProjectImageManifest();
     fetchProjects()
       .then((projects) => {
         setAllProjects(projects);
@@ -158,7 +160,8 @@ export const ProjectsPage: React.FC = () => {
         <ProjectDetailModal
           project={selectedProject}
           onClose={() => setSelectedProject(null)}
-          onVoted={() => setVoteRefresh((n) => n + 1)}
+          onRated={() => setVoteRefresh((n) => n + 1)}
+          onNavigate={onNavigate}
         />
       )}
     </div>

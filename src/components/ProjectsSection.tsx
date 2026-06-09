@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { PROJECT_CATEGORIES } from '../constants';
 import { fetchTopRatedProjects, getTopRatedProjectsFallback } from '../services/projectService';
+import { preloadProjectImageManifest } from '../utils/projectImages';
 import type { ProjectData } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t } from '../i18n';
@@ -17,7 +18,7 @@ const filterPillClass = (active: boolean) =>
 const sortByRating = (projects: ProjectData[]) =>
   [...projects].sort((a, b) => b.rating - a.rating || b.votes - a.votes);
 
-export const ProjectsSection: React.FC = () => {
+export const ProjectsSection: React.FC<{ onNavigate?: (page: string) => void }> = ({ onNavigate }) => {
   const [allProjects, setAllProjects] = useState<ProjectData[]>(() => getTopRatedProjectsFallback());
   const [activeCategory, setActiveCategory] = useState(PROJECT_CATEGORIES[0]);
   const [selectedProject, setSelectedProject] = useState<ProjectData | null>(null);
@@ -31,6 +32,7 @@ export const ProjectsSection: React.FC = () => {
   }, [lang]);
 
   useEffect(() => {
+    void preloadProjectImageManifest();
     setSyncing(true);
     fetchTopRatedProjects()
       .then(setAllProjects)
@@ -97,7 +99,8 @@ export const ProjectsSection: React.FC = () => {
         <ProjectDetailModal
           project={selectedProject}
           onClose={() => setSelectedProject(null)}
-          onVoted={() => setVoteRefresh((n) => n + 1)}
+          onRated={() => setVoteRefresh((n) => n + 1)}
+          onNavigate={onNavigate}
         />
       )}
     </section>

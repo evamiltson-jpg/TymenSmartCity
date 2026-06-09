@@ -136,7 +136,7 @@ const AppContent: React.FC = () => {
           <>
             <Hero onNavigate={navigate} currentPage={currentPage} />
             <Suspense fallback={<SectionLoader />}>
-              <ProjectsPage />
+              <ProjectsPage onNavigate={navigate} />
             </Suspense>
           </>
         );
@@ -191,7 +191,7 @@ const AppContent: React.FC = () => {
                                 
                 {/* 5. Управление и Проекты */}
                 <ManagementSection />
-                <ProjectsSection />
+                <ProjectsSection onNavigate={navigate} />
                 <InitiativeBanner />
               </Suspense>
             </main>
