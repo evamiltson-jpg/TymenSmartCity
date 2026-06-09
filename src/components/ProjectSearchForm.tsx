@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PROJECT_CATEGORIES } from '../constants';
 import { PROJECT_DIRECTIONS, PROJECT_STATUSES, TECHNOLOGY_PRESETS } from '../constants/projectForm';
 import {
   formatProjectError,
@@ -20,7 +19,6 @@ const SORT_OPTIONS: Array<{ value: ProjectSortBy; label: string }> = [
   { value: 'title', label: 'По названию (А–Я)' },
 ];
 
-const CATEGORY_OPTIONS = PROJECT_CATEGORIES.filter((item) => item !== 'Все');
 const DEBOUNCE_MS = 450;
 
 const emptyFilters = (): ProjectSearchFilters => ({
@@ -29,7 +27,6 @@ const emptyFilters = (): ProjectSearchFilters => ({
   participant: '',
   team: '',
   direction: '',
-  category: '',
   technology: '',
   status: '',
   lookingForTeam: false,
@@ -95,7 +92,6 @@ export const ProjectSearchForm: React.FC<{ onProjectSelect?: (project: ProjectDa
     }
     if (filters.team?.trim()) chips.push({ key: 'team', label: `Команда: ${filters.team.trim()}` });
     if (filters.direction) chips.push({ key: 'direction', label: `Направление: ${filters.direction}` });
-    if (filters.category) chips.push({ key: 'category', label: `Категория: ${filters.category}` });
     if (filters.technology) chips.push({ key: 'technology', label: `Технология: ${filters.technology}` });
     if (filters.status) {
       const statusLabel = PROJECT_STATUSES.find((item) => item.value === filters.status)?.label || filters.status;
@@ -245,21 +241,6 @@ export const ProjectSearchForm: React.FC<{ onProjectSelect?: (project: ProjectDa
               >
                 <option value="">Все направления</option>
                 {PROJECT_DIRECTIONS.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="text-sm text-gray-300 mb-2 block font-medium">Категория</span>
-              <select
-                value={filters.category || ''}
-                onChange={(e) => updateFilter('category', e.target.value)}
-                className={inputClass}
-              >
-                <option value="">Все категории</option>
-                {CATEGORY_OPTIONS.map((item) => (
                   <option key={item} value={item}>
                     {item}
                   </option>

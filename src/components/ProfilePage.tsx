@@ -21,17 +21,21 @@ import {
 } from '../services/projectApplicationService';
 import {
   createProjectTeam,
+  deleteProjectTeam,
   fetchMySubmittedProjects,
+  fetchMyTeamDetails,
   formatProjectError,
   readSubmittedProjectsCache,
+  updateProjectTeam,
   type SubmittedProject,
   type TeamCreatePayload,
+  type UserTeamDetail,
 } from '../services/projectService';
 import { MySubmittedProjectModal } from './profile/MySubmittedProjectModal';
 import type { ProfileLink, UserProfile, UserType } from '../types/profile';
 import { LINK_TYPE_LABELS, USER_TYPE_LABELS } from '../types/profile';
 import { ITQuizModal } from './ITQuizModal';
-import { CreateProjectModal, CreateTeamModal } from './profile/ProfileCreateModals';
+import { CreateProjectModal, CreateTeamModal, EditTeamModal } from './profile/ProfileCreateModals';
 import { ProfileSecuritySettings } from './profile/ProfileSecuritySettings';
 import { getQuizMeta, getSkillLevel, parseSkillEntry, type QuizResultPayload } from '../utils/quizStorage';
 import { getScoreBarColor } from '../data/itQuiz';
@@ -54,13 +58,6 @@ interface UserProject {
   status: string;
 }
 
-interface UserTeam {
-  id: string;
-  user_id: string;
-  team_name: string;
-  member_count?: number;
-}
-
 const inputClass =
   'w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-yellow-400';
 const labelClass = 'block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider';
@@ -80,13 +77,14 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
   const [showQuiz, setShowQuiz] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
+  const [editingTeam, setEditingTeam] = useState<UserTeamDetail | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [projects, setProjects] = useState<UserProject[]>([]);
   const [submittedProjects, setSubmittedProjects] = useState<SubmittedProject[]>(() =>
     user ? readSubmittedProjectsCache(user.id) ?? [] : [],
   );
   const [managedProject, setManagedProject] = useState<{ id: string; mode: 'view' | 'edit' } | null>(null);
-  const [teams, setTeams] = useState<UserTeam[]>([]);
+  const [teams, setTeams] = useState<UserTeamDetail[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   const [loadingSubmitted, setLoadingSubmitted] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
@@ -201,7 +199,7 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     if (!user || authLoading) return;
     setLoadingData(true);
     try {
-      const [appsRes, projsRes, tmsRes] = await Promise.all([
+      const [appsRes, projsRes, teamsRes] = await Promise.all([
         fetchUserApplications(user.id).then((data) => ({ data, error: null })).catch((error) => ({
           data: null,
           error,
@@ -212,18 +210,17 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(30),
-        supabase
-          .from('user_teams')
-          .select('id, user_id, team_name, member_count, joined_at')
-          .eq('user_id', user.id)
-          .order('joined_at', { ascending: false })
-          .limit(30),
+        fetchMyTeamDetails(user.id).then((data) => ({ data, error: null })).catch((error) => ({
+          data: null,
+          error,
+        })),
       ]);
 
       if (appsRes.data) setApplications(appsRes.data as Application[]);
       else if (appsRes.error) console.error('Applications load error:', appsRes.error);
       if (projsRes.data) setProjects(projsRes.data as UserProject[]);
-      if (tmsRes.data) setTeams(tmsRes.data as UserTeam[]);
+      if (teamsRes.data) setTeams(teamsRes.data);
+      else if (teamsRes.error) console.error('Teams load error:', teamsRes.error);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -374,6 +371,26 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     await createProjectTeam(user.id, payload);
     await loadUserData();
     setSaveMessage('Команда создана');
+  };
+
+  const handleUpdateTeam = async (teamId: string, payload: TeamCreatePayload) => {
+    if (!user) return;
+    await updateProjectTeam(user.id, teamId, payload);
+    await loadUserData();
+    setSaveMessage('Команда обновлена');
+  };
+
+  const handleDeleteTeam = async (team: UserTeamDetail) => {
+    if (!user || !team.is_owner) return;
+    if (!confirm(`Удалить команду «${team.team_name}»? Это действие нельзя отменить.`)) return;
+
+    try {
+      await deleteProjectTeam(user.id, team.team_id);
+      await loadUserData();
+      setSaveMessage('Команда удалена');
+    } catch (error) {
+      setSaveError(formatProjectError(error));
+    }
   };
 
   const handleSignOut = async () => {
@@ -884,9 +901,53 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {teams.map((team) => (
-                <div key={team.id} className="bg-[#122e41] p-6 rounded-[32px] border border-white/5">
-                  <h3 className="font-bold text-lg text-white mb-2">{team.team_name}</h3>
-                  <p className="text-gray-400 text-xs">Членов: {team.member_count || 1}</p>
+                <div key={team.membership_id} className="bg-[#122e41] p-6 rounded-[32px] border border-white/5 space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="font-bold text-lg text-white mb-1">{team.team_name}</h3>
+                      <p className="text-gray-400 text-xs">Членов: {team.member_count || 1}</p>
+                    </div>
+                    {team.is_owner && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingTeam(team)}
+                          className="px-3 py-1.5 text-xs font-bold text-yellow-400 border border-yellow-500/30 rounded-lg hover:bg-yellow-400/10"
+                        >
+                          Изменить
+                        </button>
+                        <button
+                          onClick={() => void handleDeleteTeam(team)}
+                          className="px-3 py-1.5 text-xs font-bold text-rose-300 border border-rose-500/30 rounded-lg hover:bg-rose-500/10"
+                        >
+                          Удалить
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {team.mission && (
+                    <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">{team.mission}</p>
+                  )}
+
+                  {team.required_skills.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {team.required_skills.map((skill) => (
+                        <span
+                          key={skill}
+                          className="px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] text-gray-300"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {team.looking_for && (
+                    <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
+                      <p className="text-[10px] uppercase tracking-widest text-sky-300 font-bold mb-1">Вакансии</p>
+                      <p className="text-sm text-gray-300">{team.looking_for}</p>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -901,6 +962,12 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
         onClose={() => setShowCreateTeam(false)}
         userId={user?.id}
         onSubmit={handleCreateTeam}
+      />
+      <EditTeamModal
+        team={editingTeam}
+        userId={user?.id}
+        onClose={() => setEditingTeam(null)}
+        onSubmit={handleUpdateTeam}
       />
       {managedProject && user && (
         <MySubmittedProjectModal

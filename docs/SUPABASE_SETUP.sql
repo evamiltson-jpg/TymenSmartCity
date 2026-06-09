@@ -148,6 +148,14 @@ DROP POLICY IF EXISTS "Users can create teams" ON teams;
 CREATE POLICY "Users can create teams" ON teams
   FOR INSERT WITH CHECK (created_by = auth.uid());
 
+DROP POLICY IF EXISTS "Users can update own teams" ON teams;
+CREATE POLICY "Users can update own teams" ON teams
+  FOR UPDATE USING (created_by = auth.uid());
+
+DROP POLICY IF EXISTS "Users can delete own teams" ON teams;
+CREATE POLICY "Users can delete own teams" ON teams
+  FOR DELETE USING (created_by = auth.uid());
+
 -- Политики RLS для user_teams
 DROP POLICY IF EXISTS "Users can read their team memberships" ON user_teams;
 CREATE POLICY "Users can read their team memberships" ON user_teams
@@ -156,6 +164,10 @@ CREATE POLICY "Users can read their team memberships" ON user_teams
 DROP POLICY IF EXISTS "Users can join teams" ON user_teams;
 CREATE POLICY "Users can join teams" ON user_teams
   FOR INSERT WITH CHECK (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Users can leave teams" ON user_teams;
+CREATE POLICY "Users can leave teams" ON user_teams
+  FOR DELETE USING (user_id = auth.uid());
 
 -- Триггер для автоматического обновления updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()

@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { VACANCY_ROLE_PRESETS } from '../../constants/projectForm';
 import {
   fetchUserTeams,
-  type TeamCreatePayload,
+  type UserTeamDetail,
   validateTeamPayload,
 } from '../../services/projectService';
+import type { TeamCreatePayload } from '../../utils/teamDescription';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
@@ -197,8 +198,9 @@ export const CreateTeamModal: React.FC<CreateTeamModalProps> = ({
             className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-yellow-400 resize-none"
           />
 
-          <div>
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Нужные роли</p>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Состав команды (роли)</p>
+            <p className="text-xs text-gray-500 mb-3">Кто уже есть или планируется в команде</p>
             <div className="flex flex-wrap gap-2">
               {VACANCY_ROLE_PRESETS.slice(0, 8).map((skill) => (
                 <button
@@ -208,7 +210,7 @@ export const CreateTeamModal: React.FC<CreateTeamModalProps> = ({
                   className={`px-3 py-1.5 rounded-full text-xs transition-colors ${
                     selectedSkills.includes(skill)
                       ? 'bg-yellow-400 text-black font-bold'
-                      : 'bg-white/5 text-gray-300 hover:bg-white/10'
+                      : 'bg-black/30 text-gray-300 hover:bg-black/50'
                   }`}
                 >
                   {skill}
@@ -217,12 +219,17 @@ export const CreateTeamModal: React.FC<CreateTeamModalProps> = ({
             </div>
           </div>
 
-          <input
-            value={lookingFor}
-            onChange={(e) => setLookingFor(e.target.value)}
-            placeholder="Кого ищете? Например: backend-разработчик"
-            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-yellow-400"
-          />
+          <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Открытые вакансии</p>
+            <p className="text-xs text-gray-500 mb-3">Кого хотите пригласить и на каких условиях</p>
+            <textarea
+              value={lookingFor}
+              onChange={(e) => setLookingFor(e.target.value)}
+              rows={3}
+              placeholder="Например: ищем backend-разработчика (Python, 2+ года)"
+              className="w-full px-4 py-3 rounded-xl bg-[#0b2234] border border-white/10 text-white text-sm focus:outline-none focus:border-sky-400 resize-none"
+            />
+          </div>
 
           {error && <p className="text-red-400 text-xs font-bold">{error}</p>}
         </div>
@@ -240,6 +247,168 @@ export const CreateTeamModal: React.FC<CreateTeamModalProps> = ({
             className="flex-1 py-3 bg-yellow-400 hover:bg-yellow-500 disabled:opacity-50 text-black font-bold rounded-xl text-xs uppercase"
           >
             {saving ? 'Создание...' : 'Создать'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface EditTeamModalProps {
+  team: UserTeamDetail | null;
+  userId?: string;
+  onClose: () => void;
+  onSubmit: (teamId: string, payload: TeamCreatePayload) => Promise<void>;
+}
+
+export const EditTeamModal: React.FC<EditTeamModalProps> = ({ team, userId, onClose, onSubmit }) => {
+  const [teamName, setTeamName] = useState('');
+  const [mission, setMission] = useState('');
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [lookingFor, setLookingFor] = useState('');
+  const [existingTeams, setExistingTeams] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!team) return;
+    setTeamName(team.team_name);
+    setMission(team.mission);
+    setSelectedSkills(team.required_skills);
+    setLookingFor(team.looking_for);
+    setError('');
+  }, [team]);
+
+  useEffect(() => {
+    if (!team || !userId) return;
+    void fetchUserTeams(userId)
+      .then((teams) =>
+        setExistingTeams(
+          teams.filter((item) => item.team_id !== team.team_id).map((item) => item.team_name),
+        ),
+      )
+      .catch((loadError) => console.error('EditTeamModal preload:', loadError));
+  }, [team, userId]);
+
+  const nameConflict = useMemo(() => {
+    const normalized = teamName.trim().toLowerCase();
+    if (!normalized) return false;
+    return existingTeams.some((name) => name.trim().toLowerCase() === normalized);
+  }, [existingTeams, teamName]);
+
+  if (!team) return null;
+
+  const toggleSkill = (skill: string) => {
+    setSelectedSkills((prev) =>
+      prev.includes(skill) ? prev.filter((item) => item !== skill) : [...prev, skill],
+    );
+  };
+
+  const handleSubmit = async () => {
+    const payload: TeamCreatePayload = {
+      team_name: teamName.trim(),
+      mission: mission.trim(),
+      linked_project: team.linked_project || undefined,
+      required_skills: selectedSkills,
+      looking_for: lookingFor.trim() || undefined,
+    };
+
+    const validationError = validateTeamPayload(payload);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    if (nameConflict) {
+      setError('У вас уже есть команда с таким названием');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    try {
+      await onSubmit(team.team_id, payload);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка сохранения команды');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="bg-[#122e41] border border-white/10 w-full max-w-2xl rounded-[32px] p-8 max-h-[90vh] overflow-y-auto">
+        <h3 className="text-xl font-bold text-white mb-2">Редактировать команду</h3>
+        <p className="text-sm text-gray-400 mb-6">Изменения сохранятся в профиле и при выборе команды в проекте.</p>
+
+        <div className="space-y-4">
+          <input
+            value={teamName}
+            onChange={(e) => setTeamName(e.target.value)}
+            maxLength={80}
+            placeholder="Название команды"
+            className={`w-full px-4 py-3 rounded-xl bg-white/5 border text-white text-sm focus:outline-none focus:border-yellow-400 ${
+              nameConflict ? 'border-rose-500/60' : 'border-white/10'
+            }`}
+          />
+
+          <textarea
+            value={mission}
+            onChange={(e) => setMission(e.target.value)}
+            placeholder="Миссия и цели команды"
+            rows={4}
+            maxLength={2000}
+            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-yellow-400 resize-none"
+          />
+
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Состав команды (роли)</p>
+            <div className="flex flex-wrap gap-2">
+              {VACANCY_ROLE_PRESETS.map((skill) => (
+                <button
+                  key={skill}
+                  type="button"
+                  onClick={() => toggleSkill(skill)}
+                  className={`px-3 py-1.5 rounded-full text-xs transition-colors ${
+                    selectedSkills.includes(skill)
+                      ? 'bg-yellow-400 text-black font-bold'
+                      : 'bg-black/30 text-gray-300 hover:bg-black/50'
+                  }`}
+                >
+                  {skill}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Открытые вакансии</p>
+            <textarea
+              value={lookingFor}
+              onChange={(e) => setLookingFor(e.target.value)}
+              rows={3}
+              placeholder="Кого ищете в команду"
+              className="w-full px-4 py-3 rounded-xl bg-[#0b2234] border border-white/10 text-white text-sm focus:outline-none focus:border-sky-400 resize-none"
+            />
+          </div>
+
+          {error && <p className="text-red-400 text-xs font-bold">{error}</p>}
+        </div>
+
+        <div className="flex gap-3 mt-8">
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white font-bold rounded-xl text-xs uppercase"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving || nameConflict}
+            className="flex-1 py-3 bg-yellow-400 hover:bg-yellow-500 disabled:opacity-50 text-black font-bold rounded-xl text-xs uppercase"
+          >
+            {saving ? 'Сохранение...' : 'Сохранить'}
           </button>
         </div>
       </div>

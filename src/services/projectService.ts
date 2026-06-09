@@ -1,5 +1,16 @@
 import { PROJECTS_LIST } from '../constants';
-import { getStatusStyle, normalizeProjectStatus, PROJECT_REVIEW_STATUSES } from '../constants/projectForm';
+import {
+  directionMatchesFilter,
+  getStatusStyle,
+  normalizeProjectDirection,
+  normalizeProjectStatus,
+  PROJECT_REVIEW_STATUSES,
+} from '../constants/projectForm';
+import {
+  buildTeamDescription,
+  parseTeamDescription,
+  type TeamCreatePayload,
+} from '../utils/teamDescription';
 import { resolveProjectImageUrl } from '../utils/projectImages';
 import { isSupabaseConfigured, supabase } from './supabase';
 import type { ProjectData } from '../types';
@@ -282,12 +293,13 @@ export interface ProjectSearchFilters {
   participant?: string;
   team?: string;
   direction?: string;
-  category?: string;
   technology?: string;
   status?: string;
   lookingForTeam?: boolean;
   sortBy?: ProjectSortBy;
 }
+
+export type { TeamCreatePayload };
 
 const includesNeedle = (value: unknown, needle: string) =>
   String(value ?? '')
@@ -295,7 +307,11 @@ const includesNeedle = (value: unknown, needle: string) =>
     .includes(needle);
 
 const rowMatchesFilters = (row: Record<string, unknown>, filters: ProjectSearchFilters): boolean => {
-  if (filters.direction && !includesNeedle(row.direction ?? row.category, filters.direction)) {
+  if (
+    filters.direction &&
+    !directionMatchesFilter(row.direction ?? row.category, filters.direction) &&
+    !directionMatchesFilter(row.category, filters.direction)
+  ) {
     return false;
   }
 
@@ -319,13 +335,6 @@ const rowMatchesFilters = (row: Record<string, unknown>, filters: ProjectSearchF
 
   if (filters.team?.trim() && !includesNeedle(row.team_name, filters.team.trim())) {
     return false;
-  }
-
-  if (filters.category?.trim()) {
-    const needle = filters.category.trim().toLowerCase();
-    if (!includesNeedle(row.category, needle) && !includesNeedle(row.direction, needle)) {
-      return false;
-    }
   }
 
   if (filters.technology?.trim()) {
@@ -359,47 +368,62 @@ const rowMatchesFilters = (row: Record<string, unknown>, filters: ProjectSearchF
   return true;
 };
 
-const filterFallbackProjects = (projects: ProjectData[], filters: ProjectSearchFilters): ProjectData[] =>
-  projects.filter((project) => {
-    if (filters.status && project.status !== filters.status) return false;
+const fallbackProjectsToRows = (projects: ProjectData[]): Record<string, unknown>[] =>
+  projects.map((project) => ({
+    id: project.id,
+    title: project.title,
+    description: project.desc,
+    problem: '',
+    category: project.category,
+    direction: project.category,
+    status: project.status,
+    image_url: project.imageUrl,
+    author_name: project.team,
+    team_name: project.team,
+    co_authors: [],
+    technologies: project.tags,
+    looking_for_team: false,
+    votes: project.votes,
+    rating: project.rating,
+    created_at: null,
+  }));
 
-    if (filters.direction && !project.category.toLowerCase().includes(filters.direction.toLowerCase())) {
-      return false;
+const loadAllSearchRows = async (): Promise<Record<string, unknown>[]> => {
+  if (!isSupabaseConfigured) {
+    return fallbackProjectsToRows(getSiteProjectsFallback());
+  }
+
+  const queryRows = async (columns: string) => {
+    const { data, error } = await runReadQuery(() =>
+      supabase
+        .from('projects')
+        .select(columns)
+        .eq('is_on_site', true)
+        .eq('moderation_status', REVIEW_STATUS.ACCEPTED)
+        .limit(PUBLIC_PROJECT_LIMIT),
+    );
+    if (error) throw error;
+    return (data || []) as Record<string, unknown>[];
+  };
+
+  try {
+    const rows = await queryRows(SEARCH_COLUMNS);
+    if (rows.length > 0) return rows;
+  } catch (error) {
+    if (!isColumnError(error)) {
+      console.error('loadAllSearchRows:', error);
+    } else {
+      try {
+        const rows = await queryRows(LIST_COLUMNS_MINIMAL);
+        if (rows.length > 0) return rows;
+      } catch (minimalError) {
+        console.error('loadAllSearchRows minimal:', minimalError);
+      }
     }
+  }
 
-    if (filters.category && !project.category.toLowerCase().includes(filters.category.toLowerCase())) {
-      return false;
-    }
-
-    if (filters.team && !project.team.toLowerCase().includes(filters.team.toLowerCase())) {
-      return false;
-    }
-
-    if (
-      filters.technology &&
-      !project.tags.some((tag) => tag.toLowerCase().includes(filters.technology!.toLowerCase()))
-    ) {
-      return false;
-    }
-
-    if (filters.lookingForTeam) {
-      return false;
-    }
-
-    if (filters.author?.trim() || filters.participant?.trim()) {
-      return false;
-    }
-
-    if (filters.query?.trim()) {
-      const needle = filters.query.trim().toLowerCase();
-      const haystack = [project.title, project.desc, project.team, project.category, ...project.tags]
-        .join(' ')
-        .toLowerCase();
-      if (!haystack.includes(needle)) return false;
-    }
-
-    return true;
-  });
+  return fallbackProjectsToRows(await fetchProjects());
+};
 
 const sortSearchRows = (rows: Record<string, unknown>[], sortBy: ProjectSortBy = 'rating') => {
   const sorted = [...rows];
@@ -425,19 +449,6 @@ const sortSearchRows = (rows: Record<string, unknown>[], sortBy: ProjectSortBy =
   }
 };
 
-const sortSearchResults = (projects: ProjectData[], sortBy: ProjectSortBy = 'rating') => {
-  const sorted = [...projects];
-
-  switch (sortBy) {
-    case 'votes':
-      return sorted.sort((a, b) => b.votes - a.votes || b.rating - a.rating);
-    case 'title':
-      return sorted.sort((a, b) => a.title.localeCompare(b.title, 'ru'));
-    default:
-      return sortByRating(sorted);
-  }
-};
-
 const hasActiveSearchFilters = (filters: ProjectSearchFilters) =>
   Boolean(
     filters.query?.trim() ||
@@ -445,7 +456,6 @@ const hasActiveSearchFilters = (filters: ProjectSearchFilters) =>
       filters.participant?.trim() ||
       filters.team?.trim() ||
       filters.direction?.trim() ||
-      filters.category?.trim() ||
       filters.technology?.trim() ||
       filters.status?.trim() ||
       filters.lookingForTeam,
@@ -536,7 +546,7 @@ const normalizeRow = (row: Record<string, unknown>): ProjectData => {
     title: String(row.title || ''),
     status,
     statusColor: getStatusStyle(status),
-    category: String(row.category || row.direction || 'Без категории'),
+    category: normalizeProjectDirection(row.direction || row.category),
     rating: Number(row.rating ?? 0),
     votes: Number(row.votes ?? 0),
     desc: String(row.description || ''),
@@ -629,63 +639,16 @@ export const fetchTopRatedProjects = async (limit = HOME_TOP_PROJECTS_LIMIT): Pr
 
 export const searchProjects = async (filters: ProjectSearchFilters): Promise<ProjectData[]> => {
   const sortBy = filters.sortBy || 'rating';
-
-  if (!hasActiveSearchFilters(filters)) {
-    const projects = await fetchProjects();
-    return sortBy === 'rating' ? projects : sortSearchResults(projects, sortBy);
-  }
-
   schedulePromoteDueProjects();
 
-  if (!isSupabaseConfigured) {
-    const projects = await fetchProjects();
-    return enrichProjects(sortSearchResults(filterFallbackProjects(projects, filters), sortBy));
-  }
+  let rows = await loadAllSearchRows();
 
-  try {
-    const { data, error } = await runReadQuery(() =>
-      supabase
-        .from('projects')
-        .select(SEARCH_COLUMNS)
-        .eq('is_on_site', true)
-        .eq('moderation_status', REVIEW_STATUS.ACCEPTED)
-        .limit(PUBLIC_PROJECT_LIMIT),
-    );
-    if (error) throw error;
-
-    let rows = (data || []) as Record<string, unknown>[];
-
+  if (hasActiveSearchFilters(filters)) {
     rows = rows.filter((row) => rowMatchesFilters(row, filters));
-    rows = sortSearchRows(rows, sortBy);
-    return enrichProjects(rows.map((row) => normalizeRow(row)));
-  } catch (error) {
-    if (isColumnError(error)) {
-      try {
-        const { data, error: fallbackError } = await runReadQuery(() =>
-          supabase
-            .from('projects')
-            .select(LIST_COLUMNS_MINIMAL)
-            .eq('is_on_site', true)
-            .eq('moderation_status', REVIEW_STATUS.ACCEPTED)
-            .limit(PUBLIC_PROJECT_LIMIT),
-        );
-        if (fallbackError) throw fallbackError;
-
-        let rows = ((data || []) as Record<string, unknown>[]).filter((row) =>
-          rowMatchesFilters(row, filters),
-        );
-        rows = sortSearchRows(rows, sortBy);
-        return enrichProjects(rows.map((row) => normalizeRow(row)));
-      } catch (minimalError) {
-        console.error('searchProjects:', minimalError);
-      }
-    } else {
-      console.error('searchProjects:', error);
-    }
-
-    const projects = await fetchProjects();
-    return enrichProjects(sortSearchResults(filterFallbackProjects(projects, filters), sortBy));
   }
+
+  rows = sortSearchRows(rows, sortBy);
+  return enrichProjects(rows.map((row) => normalizeRow(row)));
 };
 
 const mapSubmittedRow = (row: {
@@ -1089,30 +1052,58 @@ export const attachProjectImage = async (projectId: string, userId: string, file
   return imageUrl;
 };
 
-export interface TeamCreatePayload {
+export interface UserTeamDetail {
+  membership_id: string;
+  team_id: string;
   team_name: string;
+  description: string;
+  member_count: number;
+  is_owner: boolean;
   mission: string;
-  linked_project?: string;
-  linked_project_id?: string;
+  linked_project: string;
   required_skills: string[];
-  looking_for?: string;
+  looking_for: string;
 }
 
-export const buildTeamDescription = (payload: TeamCreatePayload) => {
-  const descriptionParts = [
-    payload.mission.trim(),
-    payload.linked_project?.trim() ? `Проект: ${payload.linked_project.trim()}` : '',
-    payload.required_skills.length ? `Навыки: ${payload.required_skills.join(', ')}` : '',
-    payload.looking_for?.trim() ? `Ищем: ${payload.looking_for.trim()}` : '',
-  ].filter(Boolean);
-
-  return descriptionParts.join('\n');
-};
-
-export const isTeamNameTaken = async (userId: string, teamName: string) => {
+export const isTeamNameTaken = async (userId: string, teamName: string, excludeTeamId?: string) => {
   const teams = await fetchUserTeams(userId);
   const normalized = teamName.trim().toLowerCase();
-  return teams.some((team) => team.team_name.trim().toLowerCase() === normalized);
+  return teams.some(
+    (team) => team.team_id !== excludeTeamId && team.team_name.trim().toLowerCase() === normalized,
+  );
+};
+
+export const fetchMyTeamDetails = async (userId: string): Promise<UserTeamDetail[]> => {
+  const { data, error } = await supabase
+    .from('user_teams')
+    .select('id, team_id, team_name, member_count, teams!inner(id, team_name, description, created_by)')
+    .eq('user_id', userId)
+    .order('joined_at', { ascending: false });
+
+  if (error) throw error;
+
+  return (data || []).map((row) => {
+    const team = row.teams as {
+      id: string;
+      team_name: string;
+      description: string | null;
+      created_by: string;
+    };
+    const parsed = parseTeamDescription(team.description || '');
+
+    return {
+      membership_id: String(row.id),
+      team_id: team.id,
+      team_name: team.team_name || String(row.team_name || 'Команда'),
+      description: team.description || '',
+      member_count: Number(row.member_count || 1),
+      is_owner: team.created_by === userId,
+      mission: parsed.mission,
+      linked_project: parsed.linked_project,
+      required_skills: parsed.required_skills,
+      looking_for: parsed.looking_for,
+    };
+  });
 };
 
 export const validateTeamPayload = (payload: TeamCreatePayload) => {
@@ -1167,4 +1158,38 @@ export const createProjectTeam = async (userId: string, payload: TeamCreatePaylo
 
   if (memberError) throw memberError;
   return team;
+};
+
+export const updateProjectTeam = async (userId: string, teamId: string, payload: TeamCreatePayload) => {
+  const validationError = validateTeamPayload(payload);
+  if (validationError) throw new Error(validationError);
+
+  if (await isTeamNameTaken(userId, payload.team_name, teamId)) {
+    throw new Error('У вас уже есть команда с таким названием');
+  }
+
+  const { error: teamError } = await supabase
+    .from('teams')
+    .update({
+      team_name: payload.team_name.trim(),
+      description: buildTeamDescription(payload),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', teamId)
+    .eq('created_by', userId);
+
+  if (teamError) throw teamError;
+
+  const { error: memberError } = await supabase
+    .from('user_teams')
+    .update({ team_name: payload.team_name.trim() })
+    .eq('team_id', teamId)
+    .eq('user_id', userId);
+
+  if (memberError) throw memberError;
+};
+
+export const deleteProjectTeam = async (userId: string, teamId: string) => {
+  const { error } = await supabase.from('teams').delete().eq('id', teamId).eq('created_by', userId);
+  if (error) throw error;
 };

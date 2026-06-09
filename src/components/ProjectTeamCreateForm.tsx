@@ -268,7 +268,11 @@ export const ProjectTeamCreateForm: React.FC<ProjectTeamCreateFormProps> = ({
           <p className="text-xs text-gray-500 mt-2 text-right">{mission.length}/2000</p>
         </FormSection>
 
-        <FormSection title="Требуемые роли и навыки">
+        <FormSection
+          title="Состав команды (роли)"
+          hint="Отметьте специалистов, которые уже есть в команде или планируются в ближайшее время."
+        >
+          <div className="rounded-xl border border-white/10 bg-[#0b2234]/70 p-4">
           <div className="flex flex-wrap gap-2 mb-3">
             {VACANCY_ROLE_PRESETS.map((skill) => (
               <button
@@ -329,20 +333,26 @@ export const ProjectTeamCreateForm: React.FC<ProjectTeamCreateFormProps> = ({
               disabled={!isAuthenticated}
               className="shrink-0 px-4 py-2 rounded-lg text-yellow-400 border border-yellow-500/30 text-sm disabled:opacity-50"
             >
-              Добавить
+              Добавить роль
             </button>
+          </div>
           </div>
         </FormSection>
 
-        <FormSection title="Кого мы ищем?" hint="Кратко опишите вакансии — это поможет привлечь участников.">
-          <input
-            value={lookingFor}
-            onChange={(e) => setLookingFor(e.target.value)}
-            type="text"
-            placeholder="Например: 2 frontend-разработчика с опытом React"
-            className={inputClass}
-            disabled={!isAuthenticated}
-          />
+        <FormSection
+          title="Открытые вакансии"
+          hint="Опишите, кого хотите пригласить в команду: количество людей, уровень и условия участия."
+        >
+          <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4">
+            <textarea
+              value={lookingFor}
+              onChange={(e) => setLookingFor(e.target.value)}
+              rows={4}
+              placeholder="Например: ищем 2 frontend-разработчиков (React, от 1 года опыта). Готовы взять студентов на стажировку."
+              className={textareaClass}
+              disabled={!isAuthenticated}
+            />
+          </div>
         </FormSection>
 
         {error && (

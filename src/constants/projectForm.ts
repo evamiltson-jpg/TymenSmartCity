@@ -60,6 +60,7 @@ export const PROJECT_DIRECTIONS = [
   'Социальные проекты',
   'Предпринимательство',
   'Городская среда',
+  'Урбанистика',
   'Культура и медиа',
   'Спорт и ЗОЖ',
   'Безопасность',
@@ -72,6 +73,39 @@ export const PROJECT_DIRECTIONS = [
   'Другое',
 ] as const;
 
+/** Синонимы для поиска и сопоставления направлений из разных источников данных */
+export const DIRECTION_SEARCH_ALIASES: Record<string, string[]> = {
+  Урбанистика: ['урбанистика', 'городская среда', 'благоустройство'],
+  'Городская среда': ['урбанистика', 'городская среда', 'благоустройство'],
+  'Социальные проекты': ['социальное', 'социальные', 'волонтёрство'],
+  Здравоохранение: ['здоровье', 'здравоохранение', 'медицина'],
+  'ЖКХ и коммунальные услуги': ['жкх', 'коммунальные'],
+};
+
+export const directionMatchesFilter = (value: unknown, filter: string) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  const needle = filter.trim().toLowerCase();
+
+  if (!normalized || !needle) return false;
+  if (normalized === needle || normalized.includes(needle) || needle.includes(normalized)) return true;
+
+  const aliases = DIRECTION_SEARCH_ALIASES[filter] || [];
+  return aliases.some((alias) => normalized.includes(alias));
+};
+
+export const normalizeProjectDirection = (value: unknown) => {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return 'Без направления';
+
+  const lower = normalized.toLowerCase();
+  if (lower === 'социальное') return 'Социальные проекты';
+  if (lower === 'жкх') return 'ЖКХ и коммунальные услуги';
+  if (lower === 'здоровье') return 'Здравоохранение';
+
+  const exact = PROJECT_DIRECTIONS.find((item) => item.toLowerCase() === lower);
+  return exact || normalized;
+};
+
 export const TASKS_BY_DIRECTION: Record<string, string[]> = {
   Цифровизация: ['Автоматизация процессов', 'Портал/личный кабинет', 'Аналитика данных', 'ИИ-решение', 'Другое'],
   Образование: ['Обучающая платформа', 'Профориентация', 'Научный проект', 'Студенческий сервис', 'Другое'],
@@ -81,6 +115,7 @@ export const TASKS_BY_DIRECTION: Record<string, string[]> = {
   'Социальные проекты': ['Волонтёрство', 'Инклюзия', 'Поддержка семей', 'Гражданское участие', 'Другое'],
   Предпринимательство: ['Стартап', 'Маркетплейс', 'B2B-сервис', 'Франшиза', 'Другое'],
   'Городская среда': ['Благоустройство', 'Урбанистика', 'Общественные пространства', 'Освещение', 'Другое'],
+  Урбанистика: ['Благоустройство', 'Общественные пространства', 'Урбанистика', 'Освещение', 'Другое'],
   'Культура и медиа': ['Медиапроект', 'Фестиваль', 'Арт-инициатива', 'Контент-платформа', 'Другое'],
   'Спорт и ЗОЖ': ['Спортивное приложение', 'Тренировочный сервис', 'Питание', 'Мероприятия', 'Другое'],
   Безопасность: ['Мониторинг', 'Оповещения', 'Видеоаналитика', 'Кибербезопасность', 'Другое'],
