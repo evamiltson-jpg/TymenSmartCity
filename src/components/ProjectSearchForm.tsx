@@ -121,7 +121,7 @@ export const ProjectSearchForm: React.FC<{ onProjectSelect?: (project: ProjectDa
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-white mb-2">Поиск проектов</h2>
           <p className="text-gray-400 text-sm">
-            Поиск только по опубликованным проектам из базы данных (без демо-примеров). Технологии ищутся в тегах и в тексте описания.
+            Каталог проектов платформы и опубликованные идеи из базы. Технологии ищутся в тегах и в описании.
           </p>
         </div>
 
@@ -322,12 +322,8 @@ export const ProjectSearchForm: React.FC<{ onProjectSelect?: (project: ProjectDa
               ))}
             </div>
           ) : results.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-gray-500 space-y-2">
-              <p>Проекты по вашему запросу не найдены.</p>
-              <p className="text-sm text-gray-600">
-                В поиске участвуют только реальные проекты из Supabase со статусом «Принят» и видимостью на сайте.
-                Демо-примеры (Умный город 2030, Волонтёрская сеть и т.п.) исключены.
-              </p>
+            <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-gray-500">
+              Проекты по вашему запросу не найдены. Попробуйте изменить фильтры или сбросить поиск.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">

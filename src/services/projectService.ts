@@ -30,7 +30,7 @@ const READ_RETRY_DELAY_MS = 500;
 const PROMOTE_INTERVAL_MS = 60_000;
 const PROJECTS_CACHE_TTL_MS = 120_000;
 const STORAGE_CACHE_TTL_MS = 300_000;
-const SITE_STORAGE_KEY = 'tsc_site_projects_v5';
+const SITE_STORAGE_KEY = 'tsc_site_projects_v6';
 const submittedCacheKey = (userId: string) => `tsc_submitted_${userId}`;
 
 let lastPromoteAt = 0;
@@ -324,17 +324,53 @@ const getRowTechnologies = (row: Record<string, unknown>): string[] => {
   return [];
 };
 
-/** Демо-примеры с витрины (PROJECTS_UNIFIED.sql), не пользовательские проекты */
-const isShowcaseRow = (row: Record<string, unknown>) => {
-  if (row.is_showcase === true) return true;
-  if (row.is_showcase === false) return false;
+/** Старые SQL-примеры (PROJECTS_UNIFIED.sql) — не каталог платформы */
+const UNIFIED_SHOWCASE_TITLES = new Set([
+  'умный город 2030',
+  'зелёный тюмень',
+  'школа цифровой грамотности',
+  'молодёжный центр инноваций',
+  'безопасный транспорт',
+  'культурный мост',
+  'здоровый образ жизни',
+  'чистая вода',
+  'волонтёрская сеть',
+  'цифровое наследие',
+]);
 
-  const team = String(row.team_name || '').trim().toLowerCase();
-  const author = String(row.author_name || '').trim().toLowerCase();
-  return team === 'smart city tyumen' && author === 'платформа';
+const isLegacyUnifiedDemo = (row: Record<string, unknown>) =>
+  UNIFIED_SHOWCASE_TITLES.has(String(row.title || '').trim().toLowerCase());
+
+const isPublicCatalogRow = (row: Record<string, unknown>) => !isLegacyUnifiedDemo(row);
+
+const catalogProjectsToRows = (): Record<string, unknown>[] =>
+  getSiteProjectsFallback().map((project) => ({
+    id: project.id,
+    title: project.title,
+    description: project.desc,
+    problem: '',
+    category: project.category,
+    direction: project.category,
+    status: project.status,
+    image_url: project.imageUrl,
+    author_name: project.team,
+    team_name: project.team,
+    co_authors: [],
+    technologies: project.tags,
+    looking_for_team: false,
+    votes: project.votes,
+    rating: project.rating,
+    is_showcase: false,
+    created_at: null,
+  }));
+
+const mergePublishedRows = (dbRows: Record<string, unknown>[]) => {
+  const seen = new Set(dbRows.map((row) => String(row.title || '').trim().toLowerCase()));
+  const catalogRows = catalogProjectsToRows().filter(
+    (row) => !seen.has(String(row.title || '').trim().toLowerCase()),
+  );
+  return [...dbRows, ...catalogRows];
 };
-
-const isUserPublishedRow = (row: Record<string, unknown>) => !isShowcaseRow(row);
 
 const rowMatchesTechnology = (row: Record<string, unknown>, technology: string) => {
   const needle = technology.trim().toLowerCase();
@@ -435,29 +471,29 @@ const queryPublishedProjectRows = async (columns: string, limit = PUBLIC_PROJECT
   );
 
   if (error) throw error;
-  return ((data || []) as Record<string, unknown>[]).filter(isUserPublishedRow);
+  return ((data || []) as Record<string, unknown>[]).filter(isPublicCatalogRow);
 };
 
 const loadAllSearchRows = async (): Promise<Record<string, unknown>[]> => {
-  if (!isSupabaseConfigured) {
-    return [];
-  }
+  let dbRows: Record<string, unknown>[] = [];
 
-  try {
-    return await queryPublishedProjectRows(SEARCH_COLUMNS);
-  } catch (error) {
-    if (isColumnError(error)) {
-      try {
-        return await queryPublishedProjectRows(LIST_COLUMNS_MINIMAL);
-      } catch (minimalError) {
-        console.error('loadAllSearchRows minimal:', minimalError);
+  if (isSupabaseConfigured) {
+    try {
+      dbRows = await queryPublishedProjectRows(SEARCH_COLUMNS);
+    } catch (error) {
+      if (isColumnError(error)) {
+        try {
+          dbRows = await queryPublishedProjectRows(LIST_COLUMNS_MINIMAL);
+        } catch (minimalError) {
+          console.error('loadAllSearchRows minimal:', minimalError);
+        }
+      } else {
+        console.error('loadAllSearchRows:', error);
       }
-    } else {
-      console.error('loadAllSearchRows:', error);
     }
   }
 
-  return [];
+  return mergePublishedRows(dbRows);
 };
 
 const sortSearchRows = (rows: Record<string, unknown>[], sortBy: ProjectSortBy = 'rating') => {
@@ -598,7 +634,7 @@ const normalizeRow = (row: Record<string, unknown>): ProjectData => {
 };
 
 const querySiteProjects = async (columns: string, limit = PUBLIC_PROJECT_LIMIT) => {
-  const rows = await queryPublishedProjectRows(columns, limit);
+  const rows = mergePublishedRows(await queryPublishedProjectRows(columns, limit));
   return rows.map((row) => normalizeRow(row));
 };
 
@@ -619,7 +655,7 @@ const loadSiteProjects = async (limit = PUBLIC_PROJECT_LIMIT): Promise<ProjectDa
     } else {
       console.error('fetchProjects:', error);
     }
-    return [];
+    return limit < PUBLIC_PROJECT_LIMIT ? getTopRatedProjectsFallback(limit) : getSiteProjectsFallback();
   }
 };
 
