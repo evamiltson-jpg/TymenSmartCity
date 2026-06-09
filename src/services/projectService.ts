@@ -1,5 +1,6 @@
 import { PROJECTS_LIST } from '../constants';
 import { getStatusStyle, normalizeProjectStatus, PROJECT_REVIEW_STATUSES } from '../constants/projectForm';
+import { resolveProjectImageUrl } from '../utils/projectImages';
 import { isSupabaseConfigured, supabase } from './supabase';
 import type { ProjectData } from '../types';
 
@@ -18,7 +19,7 @@ const READ_RETRY_DELAY_MS = 500;
 const PROMOTE_INTERVAL_MS = 60_000;
 const PROJECTS_CACHE_TTL_MS = 120_000;
 const STORAGE_CACHE_TTL_MS = 300_000;
-const SITE_STORAGE_KEY = 'tsc_site_projects_v2';
+const SITE_STORAGE_KEY = 'tsc_site_projects_v3';
 const submittedCacheKey = (userId: string) => `tsc_submitted_${userId}`;
 
 let lastPromoteAt = 0;
@@ -231,7 +232,11 @@ const mapListToProjectData = (project: (typeof PROJECTS_LIST)[number]): ProjectD
   tags: project.tags,
   team: project.team,
   participants: project.participants,
-  imageUrl: getProjectImageUrl(project.imageUrl),
+  imageUrl: resolveProjectImageUrl(project.imageUrl, {
+    id: project.id,
+    title: project.title,
+    category: project.category,
+  }),
   projectType: project.projectType,
 };
 };
@@ -240,6 +245,16 @@ export const getSiteProjectsFallback = (): ProjectData[] => PROJECTS_LIST.map(ma
 
 const sortByRating = (projects: ProjectData[]) =>
   [...projects].sort((a, b) => b.rating - a.rating || b.votes - a.votes);
+
+const enrichProjectImages = (projects: ProjectData[]): ProjectData[] =>
+  projects.map((p) => ({
+    ...p,
+    imageUrl: resolveProjectImageUrl(p.imageUrl, {
+      id: p.id,
+      title: p.title,
+      category: p.category,
+    }),
+  }));
 
 export const getTopRatedProjectsFallback = (limit = HOME_TOP_PROJECTS_LIMIT): ProjectData[] =>
   sortByRating(getSiteProjectsFallback()).slice(0, limit);
@@ -263,10 +278,10 @@ export interface ProjectSearchFilters {
   status?: string;
 }
 
-export const getProjectImageUrl = (url?: string | null) => {
-  if (!url?.trim()) return LOCAL_PROJECT_IMAGE;
-  return url;
-};
+export const getProjectImageUrl = (
+  url?: string | null,
+  meta?: { category?: string; id?: string | number; title?: string },
+) => resolveProjectImageUrl(url, meta);
 
 export const isProjectOnSite = (row: {
   moderation_status?: string | null;
@@ -355,7 +370,11 @@ const normalizeRow = (row: Record<string, unknown>): ProjectData => {
     tags: technologies,
     team: String(row.team_name || row.author_name || 'Команда'),
     participants: 1 + coAuthors.length,
-    imageUrl: getProjectImageUrl(String(row.image_url || '')),
+    imageUrl: resolveProjectImageUrl(String(row.image_url || ''), {
+      id: String(row.id),
+      title: String(row.title || ''),
+      category: String(row.category || row.direction || ''),
+    }),
     projectType: 'city',
   };
 };
@@ -416,22 +435,23 @@ const refreshSiteProjects = async (): Promise<ProjectData[]> => {
 
 export const fetchProjects = async (): Promise<ProjectData[]> => {
   if (siteProjectsCache && Date.now() - siteProjectsCache.at < PROJECTS_CACHE_TTL_MS) {
-    return siteProjectsCache.data;
+    return enrichProjectImages(siteProjectsCache.data);
   }
 
   const stored = readStorageCache<ProjectData[]>(SITE_STORAGE_KEY, STORAGE_CACHE_TTL_MS);
   if (stored?.length) {
-    siteProjectsCache = { at: Date.now(), data: stored };
+    const enriched = enrichProjectImages(stored);
+    siteProjectsCache = { at: Date.now(), data: enriched };
     void refreshSiteProjects().catch((error) => console.warn('Фоновое обновление проектов:', error));
-    return stored;
+    return enriched;
   }
 
-  return refreshSiteProjects();
+  return enrichProjectImages(await refreshSiteProjects());
 };
 
 export const fetchTopRatedProjects = async (limit = HOME_TOP_PROJECTS_LIMIT): Promise<ProjectData[]> => {
   const projects = await fetchProjects();
-  return projects.slice(0, limit);
+  return sortByRating(projects).slice(0, limit);
 };
 
 export const searchProjects = async (filters: ProjectSearchFilters): Promise<ProjectData[]> => {

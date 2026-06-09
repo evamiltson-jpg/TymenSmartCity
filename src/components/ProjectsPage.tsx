@@ -27,7 +27,9 @@ const filterPillClass = (active: boolean) =>
       : 'bg-white/5 text-gray-400 border-white/5 hover:border-white/20'
   }`;
 
-const ProjectPortfolioView: React.FC<{ onProjectSelect: (project: ProjectData) => void }> = ({ onProjectSelect }) => {
+const ProjectPortfolioView: React.FC<{
+  onProjectSelect: (project: ProjectData, rank?: number) => void;
+}> = ({ onProjectSelect }) => {
   const [allProjects, setAllProjects] = useState<ProjectData[]>(() => getSiteProjectsFallback());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -41,6 +43,12 @@ const ProjectPortfolioView: React.FC<{ onProjectSelect: (project: ProjectData) =
       .catch((err) => setError(formatProjectError(err)))
       .finally(() => setLoading(false));
   }, []);
+
+  const rankById = useMemo(() => {
+    const map = new Map<string, number>();
+    allProjects.forEach((p, index) => map.set(String(p.id), index + 1));
+    return map;
+  }, [allProjects]);
 
   const stats = useMemo(() => {
     const inProgress = allProjects.filter((p) =>
@@ -79,7 +87,12 @@ const ProjectPortfolioView: React.FC<{ onProjectSelect: (project: ProjectData) =
               <div key={i} className="h-[340px] bg-white/5 animate-pulse rounded-2xl" />
             ))
           : allProjects.map((p) => (
-              <ProjectCard key={p.id} project={p} onAction={() => onProjectSelect(p)} />
+              <ProjectCard
+                key={p.id}
+                project={p}
+                rank={rankById.get(String(p.id))}
+                onAction={() => onProjectSelect(p, rankById.get(String(p.id)))}
+              />
             ))}
       </div>
 
@@ -104,17 +117,41 @@ const ProjectPortfolioView: React.FC<{ onProjectSelect: (project: ProjectData) =
 export const ProjectsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('portfolio');
   const [selectedProject, setSelectedProject] = useState<ProjectData | null>(null);
+  const [selectedRank, setSelectedRank] = useState<number | undefined>();
 
   const renderContent = () => {
     if (selectedProject) {
-      return <ProjectDetailView project={selectedProject} onBack={() => setSelectedProject(null)} />;
+      return (
+        <ProjectDetailView
+          project={selectedProject}
+          rank={selectedRank}
+          onBack={() => {
+            setSelectedProject(null);
+            setSelectedRank(undefined);
+          }}
+        />
+      );
     }
 
     switch (activeTab) {
       case 'portfolio':
-        return <ProjectPortfolioView onProjectSelect={setSelectedProject} />;
+        return (
+          <ProjectPortfolioView
+            onProjectSelect={(project, rank) => {
+              setSelectedProject(project);
+              setSelectedRank(rank);
+            }}
+          />
+        );
       case 'search':
-        return <ProjectSearchForm onProjectSelect={setSelectedProject} />;
+        return (
+          <ProjectSearchForm
+            onProjectSelect={(project) => {
+              setSelectedProject(project);
+              setSelectedRank(undefined);
+            }}
+          />
+        );
       case 'create-project':
         return <ProjectCreateForm />;
       case 'create-team':

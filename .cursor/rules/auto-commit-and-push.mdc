@@ -1,0 +1,33 @@
+---
+description: After code changes, commit and push to main (with pull/rebase first)
+alwaysApply: true
+---
+
+# Auto commit and push
+
+After completing implementation tasks that changed project files, **commit and push without waiting for the user to ask**.
+
+Skip for: questions/reviews only, or when the user explicitly says not to push.
+
+## Workflow (run in order)
+
+1. `git status`, `git diff`, `git log -3 --oneline` — understand what will be committed.
+2. **Pull remote first** — `main` often gets bot commits (`Auto-update news…` from GitHub Actions):
+   ```bash
+   git pull --rebase origin main
+   ```
+3. If rebase conflicts: resolve, `git add` resolved files, `git rebase --continue`.
+4. Stage only relevant files (never `.env`, secrets, accidental `dist/` unless intentional).
+5. Commit with a short message focused on *why*.
+6. Push:
+   ```bash
+   git push origin main
+   ```
+7. If push rejected again: `git pull --rebase origin main`, then push once more.
+8. After push, briefly tell the user the commit hash and that **Deploy to GitHub Pages** will run on `main`.
+
+## Do not
+
+- `git push --force` to `main`
+- amend commits already pushed to remote
+- skip pull because "we only changed local files" — the news bot may have pushed meanwhile

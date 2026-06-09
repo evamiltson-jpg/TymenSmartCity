@@ -6,11 +6,18 @@ import { ProjectStatusBadge } from './ProjectStatusBadge';
 const actionButtonClass =
   'w-full inline-flex justify-center bg-yellow-400/10 hover:bg-yellow-400 text-yellow-400 hover:text-black py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all mt-3';
 
+const rankStyles: Record<number, string> = {
+  1: 'bg-yellow-400 text-black ring-yellow-300',
+  2: 'bg-gray-200 text-black ring-gray-100',
+  3: 'bg-amber-700 text-white ring-amber-500',
+};
+
 interface ProjectCardProps {
   project: ProjectData;
   onAction?: () => void;
   actionLabel?: string;
   as?: 'div' | 'button';
+  rank?: number;
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({
@@ -18,6 +25,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
   onAction,
   actionLabel = 'Подробнее',
   as = 'div',
+  rank,
 }) => {
   const ratingLabel =
     project.rating > 0 ? project.rating.toFixed(1) : String(project.votes);
@@ -26,15 +34,32 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
     <>
       <div className="h-36 sm:h-40 relative overflow-hidden bg-gray-800">
         <img
-          src={getProjectImageUrl(project.imageUrl)}
+          src={getProjectImageUrl(project.imageUrl, {
+            id: project.id,
+            title: project.title,
+            category: project.category,
+          })}
           className="w-full h-full object-cover grayscale-[0.3] group-hover:grayscale-0 group-hover:scale-105 transition-all duration-500"
           alt={project.title}
           loading="lazy"
           onError={(e) => {
-            e.currentTarget.src = getProjectImageUrl('');
+            e.currentTarget.src = getProjectImageUrl(project.imageUrl, {
+              id: project.id,
+              title: project.title,
+              category: project.category,
+            });
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#122e41] via-[#122e41]/20 to-transparent" />
+        {rank != null && (
+          <span
+            className={`absolute top-3 left-3 px-2 py-1 rounded-lg text-xs font-black ring-1 ${
+              rankStyles[rank] ?? 'bg-black/70 text-white ring-white/20'
+            }`}
+          >
+            #{rank}
+          </span>
+        )}
         <ProjectStatusBadge status={project.status} className="absolute top-3 right-3" />
         <span className="absolute bottom-3 left-4 text-yellow-400 text-xs font-bold uppercase tracking-wide drop-shadow-md">
           {project.category}
