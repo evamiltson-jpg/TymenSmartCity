@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { getStatusStyle, PROJECT_DIRECTIONS, PROJECT_STATUSES, TECHNOLOGY_PRESETS } from '../constants/projectForm';
-import { formatProjectError, getProjectImageUrl, searchProjects } from '../services/projectService';
+import { PROJECT_DIRECTIONS, PROJECT_STATUSES, TECHNOLOGY_PRESETS } from '../constants/projectForm';
+import { formatProjectError, searchProjects } from '../services/projectService';
+import { ProjectCard } from './ProjectCard';
 import type { ProjectData } from '../types';
 
 const inputClass =
@@ -148,40 +149,14 @@ export const ProjectSearchForm: React.FC<{ onProjectSelect?: (project: ProjectDa
               Проекты по вашему запросу не найдены
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
               {results.map((project) => (
-                <button
+                <ProjectCard
                   key={project.id}
-                  type="button"
-                  onClick={() => onProjectSelect?.(project)}
-                  className="text-left bg-[#122e41] rounded-[24px] overflow-hidden border border-white/5 hover:border-yellow-400/30 transition-all group"
-                >
-                  <div className="h-44 overflow-hidden relative">
-                    <img
-                      src={getProjectImageUrl(project.imageUrl)}
-                      alt=""
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      onError={(e) => {
-                        e.currentTarget.src = getProjectImageUrl('');
-                      }}
-                    />
-                    <span className={`absolute top-3 left-3 text-[10px] font-bold uppercase px-2 py-1 rounded-lg border ${getStatusStyle(project.status)}`}>
-                      {project.status}
-                    </span>
-                  </div>
-                  <div className="p-5">
-                    <h4 className="text-lg font-bold text-white mb-1 line-clamp-2">{project.title}</h4>
-                    <p className="text-yellow-400 text-xs font-bold uppercase mb-2">{project.category}</p>
-                    <p className="text-gray-400 text-sm line-clamp-3 mb-3">{project.desc}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {project.tags.slice(0, 3).map((tag) => (
-                        <span key={tag} className="text-[10px] px-2 py-1 rounded bg-white/5 text-gray-300">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </button>
+                  project={project}
+                  as="button"
+                  onAction={() => onProjectSelect?.(project)}
+                />
               ))}
             </div>
           )}

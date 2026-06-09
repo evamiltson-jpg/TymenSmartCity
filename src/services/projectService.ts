@@ -1,5 +1,5 @@
 import { PROJECTS_LIST } from '../constants';
-import { getStatusStyle, PROJECT_REVIEW_STATUSES } from '../constants/projectForm';
+import { getStatusStyle, normalizeProjectStatus, PROJECT_REVIEW_STATUSES } from '../constants/projectForm';
 import { isSupabaseConfigured, supabase } from './supabase';
 import type { ProjectData } from '../types';
 
@@ -217,11 +217,13 @@ const LIST_COLUMNS_MINIMAL =
 
 const SUBMITTED_COLUMNS_MINIMAL = 'id, title, description, status, category, created_at';
 
-const mapListToProjectData = (project: (typeof PROJECTS_LIST)[number]): ProjectData => ({
+const mapListToProjectData = (project: (typeof PROJECTS_LIST)[number]): ProjectData => {
+  const status = normalizeProjectStatus(project.status);
+  return {
   id: String(project.id),
   title: project.title,
-  status: project.status,
-  statusColor: getStatusStyle(project.status),
+  status,
+  statusColor: getStatusStyle(status),
   category: project.category,
   rating: project.rating,
   votes: project.votes,
@@ -231,7 +233,8 @@ const mapListToProjectData = (project: (typeof PROJECTS_LIST)[number]): ProjectD
   participants: project.participants,
   imageUrl: getProjectImageUrl(project.imageUrl),
   projectType: project.projectType,
-});
+};
+};
 
 export const getSiteProjectsFallback = (): ProjectData[] => PROJECTS_LIST.map(mapListToProjectData);
 
@@ -261,7 +264,7 @@ export interface ProjectSearchFilters {
 }
 
 export const getProjectImageUrl = (url?: string | null) => {
-  if (!url || url.includes('unsplash.com')) return LOCAL_PROJECT_IMAGE;
+  if (!url?.trim()) return LOCAL_PROJECT_IMAGE;
   return url;
 };
 
@@ -338,7 +341,7 @@ const isColumnError = (error: unknown) => {
 const normalizeRow = (row: Record<string, unknown>): ProjectData => {
   const coAuthors = Array.isArray(row.co_authors) ? (row.co_authors as string[]) : [];
   const technologies = Array.isArray(row.technologies) ? (row.technologies as string[]) : [];
-  const status = String(row.status || 'Идея');
+  const status = normalizeProjectStatus(String(row.status || 'Идея'));
 
   return {
     id: String(row.id),

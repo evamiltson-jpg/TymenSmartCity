@@ -3,45 +3,53 @@ export const PROJECT_STATUSES = [
     value: 'Идея',
     label: 'Идея',
     hint: 'Проект на стадии замысла, идёт формулировка задачи.',
-    color: 'bg-slate-500/25 text-slate-100 border-slate-400/50 ring-slate-400/30',
-    dot: 'bg-slate-400',
+    color: 'bg-slate-600/40 text-slate-100 border-slate-400/60 ring-slate-400/40',
+    dot: 'bg-slate-300',
   },
   {
     value: 'В разработке',
     label: 'В разработке',
     hint: 'Команда активно создаёт прототип или MVP.',
-    color: 'bg-blue-500/25 text-blue-100 border-blue-400/50 ring-blue-400/30',
+    color: 'bg-blue-600/40 text-blue-100 border-blue-400/60 ring-blue-400/40',
     dot: 'bg-blue-400',
   },
   {
     value: 'Тестирование',
     label: 'Тестирование',
     hint: 'Проверка на пользователях, пилот или бета-версия.',
-    color: 'bg-purple-500/25 text-purple-100 border-purple-400/50 ring-purple-400/30',
+    color: 'bg-purple-600/40 text-purple-100 border-purple-400/60 ring-purple-400/40',
     dot: 'bg-purple-400',
   },
   {
     value: 'Готов к внедрению',
     label: 'Готов к внедрению',
     hint: 'Решение готово к масштабированию или передаче заказчику.',
-    color: 'bg-amber-500/25 text-amber-100 border-amber-400/50 ring-amber-400/30',
+    color: 'bg-amber-600/40 text-amber-100 border-amber-400/60 ring-amber-400/40',
     dot: 'bg-amber-400',
   },
   {
     value: 'Внедрён',
     label: 'Внедрён',
     hint: 'Проект уже используется в реальной среде.',
-    color: 'bg-emerald-500/25 text-emerald-100 border-emerald-400/50 ring-emerald-400/30',
+    color: 'bg-emerald-600/40 text-emerald-100 border-emerald-400/60 ring-emerald-400/40',
     dot: 'bg-emerald-400',
   },
   {
     value: 'Приостановлен',
     label: 'Приостановлен',
     hint: 'Работа временно остановлена.',
-    color: 'bg-rose-500/25 text-rose-100 border-rose-400/50 ring-rose-400/30',
+    color: 'bg-rose-600/40 text-rose-100 border-rose-400/60 ring-rose-400/40',
     dot: 'bg-rose-400',
   },
 ] as const;
+
+const STATUS_ALIASES: Record<string, string> = {
+  'В работе': 'В разработке',
+  Завершено: 'Внедрён',
+  Приостановлено: 'Приостановлен',
+};
+
+export const normalizeProjectStatus = (status: string) => STATUS_ALIASES[status] ?? status;
 
 export const PROJECT_DIRECTIONS = [
   'Цифровизация',
@@ -165,6 +173,15 @@ export const getReviewStatusStyle = (status: string) =>
   PROJECT_REVIEW_STATUSES.find((item) => item.value === status)?.tone ??
   'text-gray-300 bg-white/5 border-white/10';
 
-export const getStatusStyle = (status: string) =>
-  PROJECT_STATUSES.find((item) => item.value === status)?.color ??
-  'bg-white/10 text-gray-200 border-white/20 ring-white/10';
+export const getStatusStyle = (status: string) => {
+  const normalized = normalizeProjectStatus(status);
+  return (
+    PROJECT_STATUSES.find((item) => item.value === normalized)?.color ??
+    'bg-white/15 text-gray-200 border-white/25 ring-white/15'
+  );
+};
+
+export const getStatusDot = (status: string) => {
+  const normalized = normalizeProjectStatus(status);
+  return PROJECT_STATUSES.find((item) => item.value === normalized)?.dot ?? 'bg-gray-400';
+};

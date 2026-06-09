@@ -2,6 +2,7 @@
 import React from 'react';
 import { ProjectData } from '../types';
 import { getProjectImageUrl } from '../services/projectService';
+import { ProjectStatusBadge } from './ProjectStatusBadge';
 
 interface ProjectDetailViewProps {
     project: ProjectData;
@@ -52,7 +53,10 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({ project, o
                     <p className="text-yellow-400 font-bold text-lg mb-6">{project.category}</p>
                     
                     <div className="space-y-3 mb-8">
-                        <InfoChip icon="📊" label="Статус" value={project.status} />
+                        <div className="flex items-center gap-3">
+                            <span className="text-white/70 text-sm">Статус:</span>
+                            <ProjectStatusBadge status={project.status} />
+                        </div>
                         <InfoChip icon="👥" label="Команда" value={project.team} />
                         <InfoChip icon="🧑‍🤝‍🧑" label="Участников" value={project.participants} />
                     </div>
@@ -75,7 +79,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({ project, o
             <Section title="Технологии" icon="⚙️">
                 <div className="flex flex-wrap gap-3">
                     {project.tags.map(tag => (
-                        <div key={tag} className="bg-black/40 text-gray-200 px-4 py-2 rounded-lg text-sm border border-white/10">
+                        <div key={tag} className="bg-white/10 text-gray-100 px-4 py-2 rounded-lg text-sm font-semibold border border-white/10">
                            {tag}
                         </div>
                     ))}
