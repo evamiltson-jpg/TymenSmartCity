@@ -16,8 +16,8 @@
 
 1.  **Клонируйте репозиторий (если еще не сделали):**
     ```bash
-    git clone https://github.com/Zqqqbs/tyumen-smart-city.git
-    cd tyumen-smart-city
+    git clone https://github.com/evamiltson-jpg/TymenSmartCity.git
+    cd TymenSmartCity
     ```
 
 2.  **Установите pnpm (если он не установлен):**
