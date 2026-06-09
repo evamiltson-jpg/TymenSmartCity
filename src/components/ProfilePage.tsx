@@ -17,6 +17,7 @@ import {
 import {
   cancelProjectApplication,
   APPLICATION_STATUS_LABELS,
+  fetchUserApplications,
   type ProjectApplication,
 } from '../services/projectApplicationService';
 import {
@@ -37,7 +38,7 @@ import { getScoreBarColor } from '../data/itQuiz';
 interface Application {
   user_id: string;
   id: string;
-  project_id: string;
+  project_id: string | null;
   status: ProjectApplication['status'];
   project_title: string;
   submitted_at: string;
@@ -200,12 +201,10 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     setLoadingData(true);
     try {
       const [appsRes, projsRes, tmsRes] = await Promise.all([
-        supabase
-          .from('user_applications')
-          .select('id, user_id, project_id, status, project_title, submitted_at')
-          .eq('user_id', user.id)
-          .order('submitted_at', { ascending: false })
-          .limit(30),
+        fetchUserApplications(user.id).then((data) => ({ data, error: null })).catch((error) => ({
+          data: null,
+          error,
+        })),
         supabase
           .from('user_projects')
           .select('id, user_id, title, description, role, status, created_at')
@@ -221,6 +220,7 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
       ]);
 
       if (appsRes.data) setApplications(appsRes.data as Application[]);
+      else if (appsRes.error) console.error('Applications load error:', appsRes.error);
       if (projsRes.data) setProjects(projsRes.data as UserProject[]);
       if (tmsRes.data) setTeams(tmsRes.data as UserTeam[]);
     } catch (error) {

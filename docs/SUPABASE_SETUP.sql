@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 CREATE TABLE IF NOT EXISTS user_applications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  project_id UUID,
+  project_id TEXT,
   project_title VARCHAR(255) NOT NULL,
   status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
   submitted_at TIMESTAMP DEFAULT NOW(),
@@ -123,7 +123,8 @@ CREATE POLICY "Users can delete their pending applications" ON user_applications
   FOR DELETE TO authenticated
   USING (user_id = auth.uid() AND status = 'pending');
 
-GRANT DELETE ON user_applications TO authenticated;
+GRANT SELECT, INSERT, DELETE ON user_applications TO authenticated;
+GRANT ALL ON user_applications TO service_role;
 
 -- Политики RLS для user_projects
 DROP POLICY IF EXISTS "Users can read their own projects" ON user_projects;

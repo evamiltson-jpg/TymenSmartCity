@@ -59,7 +59,7 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
       setApplication(null);
       return;
     }
-    fetchApplicationForProject(user.id, String(project.id))
+    fetchApplicationForProject(user.id, String(project.id), project.title)
       .then(setApplication)
       .catch(() => setApplication(null));
   }, [user, project.id]);
@@ -87,12 +87,17 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
 
     setApplyBusy(true);
     setApplyMessage('');
-    const result = await submitProjectApplication(user.id, String(project.id), project.title);
-    setApplyBusy(false);
-    setApplyMessage(result.message);
-    if (result.ok && result.application) {
-      setApplication(result.application);
-      onApplySuccess?.();
+    try {
+      const result = await submitProjectApplication(user.id, String(project.id), project.title);
+      setApplyMessage(result.message);
+      if (result.ok && result.application) {
+        setApplication(result.application);
+        onApplySuccess?.();
+      }
+    } catch {
+      setApplyMessage('Не удалось отправить заявку. Проверьте интернет и попробуйте ещё раз.');
+    } finally {
+      setApplyBusy(false);
     }
   };
 
