@@ -24,9 +24,13 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenChat }) => {
           alt="City Logo" 
           className="h-9 w-9 sm:h-12 sm:w-12 object-contain transition-transform group-hover:scale-105 shrink-0" 
         />
-        <div className="hidden sm:flex flex-col justify-center min-w-0">
-          <span className="font-refined-serif text-base md:text-xl leading-none font-medium">{t(lang, 'header.line1')}</span>
-          <span className="font-refined-serif text-base md:text-xl leading-tight font-medium">{t(lang, 'header.line2')}</span>
+        <div className="flex flex-col justify-center min-w-0">
+          <span className="font-refined-serif text-[10px] sm:text-base md:text-xl leading-none font-medium truncate max-w-[130px] sm:max-w-none">
+            {t(lang, 'header.line1')}
+          </span>
+          <span className="font-refined-serif text-[10px] sm:text-base md:text-xl leading-tight font-medium truncate max-w-[130px] sm:max-w-none">
+            {t(lang, 'header.line2')}
+          </span>
         </div>
       </div>
 

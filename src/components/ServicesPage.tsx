@@ -53,7 +53,7 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ hideHeader = false }
       {!hideHeader && (
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-6">
           <div>
-            <h1 className="text-4xl font-bold mb-3 tracking-tight">Цифровые сервисы Тюмени</h1>
+            <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-3 tracking-tight">Цифровые сервисы Тюмени</h1>
             <p className="text-gray-400 font-medium">Готовые государственные и муниципальные инструменты для жизни в городе</p>
           </div>
           <div className="text-right hidden md:block">
@@ -63,12 +63,13 @@ export const ServicesPage: React.FC<ServicesPageProps> = ({ hideHeader = false }
         </div>
       )}
       
-      <div className="flex flex-wrap gap-3 mb-12">
+      <div className="flex flex-wrap gap-2 sm:gap-3 mb-8 sm:mb-12">
         {categories.map(cat => (
           <button 
             key={cat}
+            type="button"
             onClick={() => setActiveCat(cat)}
-            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all border ${
+            className={`px-3.5 sm:px-6 py-2 sm:py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all border ${
               activeCat === cat 
                 ? 'bg-yellow-400 text-black border-yellow-400' 
                 : 'bg-white/5 text-gray-400 border-white/5 hover:border-white/20'

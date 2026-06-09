@@ -42,45 +42,56 @@ export const NewsSection: React.FC<NewsSectionProps> = ({ isFullPage = true, lim
   const displayNews = limit ? filteredNews.slice(0, limit) : filteredNews;
 
   return (
-    <section className="pt-6 pb-12">
-      <div className="flex flex-col md:flex-row justify-between items-end mb-10 gap-6">
-        <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-          {isFullPage ? 'Все цифровые новости' : 'Цифровые новости'}
-        </h2>
+    <section className="pt-4 sm:pt-6 pb-8 sm:pb-12">
+      <h2 className="text-xl sm:text-3xl font-bold text-white tracking-tight mb-4 sm:mb-6">
+        {isFullPage ? 'Все цифровые новости' : 'Цифровые новости'}
+      </h2>
+
+      <div className="flex flex-wrap gap-2 mb-6 sm:mb-8 md:hidden">
+        {NEWS_CATEGORIES.map((category) => (
+          <button
+            key={category}
+            type="button"
+            onClick={() => handleCategoryChange(category)}
+            className={`px-3.5 py-2 rounded-xl font-bold text-xs transition-all border ${
+              activeCategory === category
+                ? 'bg-yellow-400 text-black border-yellow-400'
+                : 'bg-white/5 text-gray-400 border-white/10 active:bg-white/10'
+            }`}
+          >
+            {category}
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-12">
-        
-        {/* БОКОВОЕ МЕНЮ ТЕГОВ */}
-        <div className="md:col-span-2 col-span-12">
-          <div className="bg-transparent h-full">
-            <ul className="space-y-4 flex md:block overflow-x-auto md:overflow-visible gap-6 md:gap-0 pb-4 md:pb-0 scrollbar-hide">
-              {NEWS_CATEGORIES.map((category) => (
-                <li key={category} className="shrink-0">
-                  <button
-                    onClick={() => handleCategoryChange(category)}
-                    className={`text-left w-full text-base transition-colors font-medium ${
-                      activeCategory === category
-                        ? 'text-yellow-400 font-bold'
-                        : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    {category}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 sm:gap-12">
+        <div className="hidden md:block md:col-span-2">
+          <ul className="space-y-4">
+            {NEWS_CATEGORIES.map((category) => (
+              <li key={category}>
+                <button
+                  type="button"
+                  onClick={() => handleCategoryChange(category)}
+                  className={`text-left w-full text-base transition-colors font-medium ${
+                    activeCategory === category
+                      ? 'text-yellow-400 font-bold'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  {category}
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
-        
-        {/* СПИСОК НОВОСТЕЙ */}
+
         <div className="md:col-span-10 col-span-12">
           {loading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-12 text-gray-500 uppercase font-black animate-pulse">
                 Загрузка новостей из Тюмени...
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-16">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 sm:gap-x-12 gap-y-8 sm:gap-y-16">
               {displayNews.length > 0 ? (
                 displayNews.map((article) => (
                   <div 
@@ -88,7 +99,7 @@ export const NewsSection: React.FC<NewsSectionProps> = ({ isFullPage = true, lim
                     className="bg-transparent group cursor-pointer"
                     onClick={() => setSelectedArticle(article)} // ОТКРЫТИЕ МОДАЛКИ
                   >
-                    <div className="overflow-hidden h-64 mb-6 rounded-2xl relative bg-white/5 border border-white/5">
+                    <div className="overflow-hidden h-44 sm:h-64 mb-4 sm:mb-6 rounded-2xl relative bg-white/5 border border-white/5">
                       <div className="absolute top-4 left-4 z-10 bg-black/60 backdrop-blur-sm px-3 py-1 rounded-lg border border-white/10">
                          <span className={`text-[10px] font-black uppercase tracking-widest ${article.tag === 'Технологии' ? 'text-sky-400' : 'text-yellow-400'}`}>
                            {article.tag || 'Новости'}
@@ -103,7 +114,7 @@ export const NewsSection: React.FC<NewsSectionProps> = ({ isFullPage = true, lim
                       />
                     </div>
 
-                    <h3 className="text-white font-bold text-xl mb-3 leading-tight group-hover:text-yellow-400 transition-colors">
+                    <h3 className="text-white font-bold text-base sm:text-xl mb-2 sm:mb-3 leading-snug group-hover:text-yellow-400 transition-colors line-clamp-3">
                       {article.title || article.description}
                     </h3>
                     
@@ -125,13 +136,14 @@ export const NewsSection: React.FC<NewsSectionProps> = ({ isFullPage = true, lim
             </div>
           )}
           
-          <div className="mt-12 flex justify-end">
+          <div className="mt-8 sm:mt-12 flex justify-center sm:justify-end">
             {!isFullPage && (
               <button 
+                type="button"
                 onClick={() => onNavigate && onNavigate('all-news')}
                 className="flex items-center space-x-2 text-yellow-400 hover:text-white transition-colors group border-b border-yellow-400 pb-1"
               >
-                <span className="text-lg font-bold">Смотреть все новости</span>
+                <span className="text-base sm:text-lg font-bold">Смотреть все новости</span>
                 <svg className="w-5 h-5 transform group-hover:translate-x-1 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M5 12h14M12 5l7 7-7 7"/>
                 </svg>
@@ -148,7 +160,7 @@ export const NewsSection: React.FC<NewsSectionProps> = ({ isFullPage = true, lim
           onClick={() => setSelectedArticle(null)}
         >
           <div 
-            className="bg-[#122e41] border border-white/10 w-full max-w-4xl h-[90vh] rounded-[32px] overflow-hidden shadow-2xl relative flex flex-col"
+            className="bg-[#122e41] border border-white/10 w-full max-w-4xl h-[92dvh] sm:h-[90vh] rounded-2xl sm:rounded-[32px] overflow-hidden shadow-2xl relative flex flex-col"
             onClick={e => e.stopPropagation()}
           >
             <button 
@@ -159,7 +171,7 @@ export const NewsSection: React.FC<NewsSectionProps> = ({ isFullPage = true, lim
             </button>
 
             <div className="overflow-y-auto custom-scrollbar flex-grow">
-               <div className="h-[400px] relative shrink-0">
+               <div className="h-[180px] sm:h-[400px] relative shrink-0">
                   <img 
                     src={selectedArticle.imageUrl} 
                     className="w-full h-full object-cover" 
