@@ -16,6 +16,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
@@ -38,8 +39,6 @@ jobs:
         run: python parsers/events_parser.py
 
       - name: Commit and push changes
-        env:
-          BRANCH: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -51,4 +50,4 @@ jobs:
           fi
 
           git commit -m "Auto-update news, university news and events [skip ci]"
-          git push origin "HEAD:${BRANCH}"
+          git push origin HEAD:main
