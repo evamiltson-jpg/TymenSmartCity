@@ -121,7 +121,7 @@ export const ProjectSearchForm: React.FC<{ onProjectSelect?: (project: ProjectDa
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-white mb-2">Поиск проектов</h2>
           <p className="text-gray-400 text-sm">
-            Полнотекстовый поиск по названию, описанию, команде, автору, технологиям и направлению.
+            Поиск только по опубликованным проектам из базы данных (без демо-примеров). Технологии ищутся в тегах и в тексте описания.
           </p>
         </div>
 
@@ -247,20 +247,20 @@ export const ProjectSearchForm: React.FC<{ onProjectSelect?: (project: ProjectDa
                 ))}
               </select>
             </label>
-            <label className="block">
+            <label className="block md:col-span-2">
               <span className="text-sm text-gray-300 mb-2 block font-medium">Технология</span>
-              <select
+              <input
+                list="project-technology-options"
                 value={filters.technology || ''}
                 onChange={(e) => updateFilter('technology', e.target.value)}
                 className={inputClass}
-              >
-                <option value="">Любая технология</option>
+                placeholder="React, Python, IoT..."
+              />
+              <datalist id="project-technology-options">
                 {TECHNOLOGY_PRESETS.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
+                  <option key={item} value={item} />
                 ))}
-              </select>
+              </datalist>
             </label>
             <label className="block">
               <span className="text-sm text-gray-300 mb-2 block font-medium">Статус</span>
@@ -322,8 +322,12 @@ export const ProjectSearchForm: React.FC<{ onProjectSelect?: (project: ProjectDa
               ))}
             </div>
           ) : results.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-gray-500">
-              Проекты по вашему запросу не найдены. Попробуйте изменить фильтры или сбросить поиск.
+            <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-gray-500 space-y-2">
+              <p>Проекты по вашему запросу не найдены.</p>
+              <p className="text-sm text-gray-600">
+                В поиске участвуют только реальные проекты из Supabase со статусом «Принят» и видимостью на сайте.
+                Демо-примеры (Умный город 2030, Волонтёрская сеть и т.п.) исключены.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">

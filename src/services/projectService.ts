@@ -30,7 +30,7 @@ const READ_RETRY_DELAY_MS = 500;
 const PROMOTE_INTERVAL_MS = 60_000;
 const PROJECTS_CACHE_TTL_MS = 120_000;
 const STORAGE_CACHE_TTL_MS = 300_000;
-const SITE_STORAGE_KEY = 'tsc_site_projects_v4';
+const SITE_STORAGE_KEY = 'tsc_site_projects_v5';
 const submittedCacheKey = (userId: string) => `tsc_submitted_${userId}`;
 
 let lastPromoteAt = 0;
@@ -129,7 +129,7 @@ const baseUrl = import.meta.env.BASE_URL || '/';
 export const LOCAL_PROJECT_IMAGE = `${baseUrl}assets/City_logo.png`.replace(/\/+/g, '/');
 
 const LIST_COLUMNS =
-  'id, title, description, category, status, image_url, author_name, team_name, co_authors, technologies, votes, rating';
+  'id, title, description, category, direction, status, image_url, author_name, team_name, co_authors, technologies, votes, rating, is_showcase, created_by';
 
 export interface UserTeamOption {
   team_id: string;
@@ -225,10 +225,10 @@ const MY_PROJECT_COLUMNS =
   'id, title, problem, description, expected_result, direction, custom_direction, task, custom_task, economic_effect, note, category, author_name, co_authors, ready_to_implement, team_name, rating_enabled, image_url, status, technologies, looking_for_team, needed_roles, vacancy_note, votes, rating, published_at, moderation_status, is_on_site, created_at';
 
 const LIST_COLUMNS_MINIMAL =
-  'id, title, description, category, direction, status, image_url, author_name, team_name, co_authors, technologies, votes, rating, created_at';
+  'id, title, description, category, direction, status, image_url, author_name, team_name, co_authors, technologies, votes, rating, is_showcase, created_at';
 
 const SEARCH_COLUMNS =
-  'id, title, problem, description, category, direction, status, image_url, author_name, team_name, co_authors, technologies, looking_for_team, votes, rating, created_at';
+  'id, title, problem, description, note, category, direction, status, image_url, author_name, team_name, co_authors, technologies, looking_for_team, votes, rating, is_showcase, created_by, created_at';
 
 const SUBMITTED_COLUMNS_MINIMAL = 'id, title, description, status, category, created_at';
 
@@ -306,6 +306,59 @@ const includesNeedle = (value: unknown, needle: string) =>
     .toLowerCase()
     .includes(needle);
 
+const getRowTechnologies = (row: Record<string, unknown>): string[] => {
+  const raw = row.technologies;
+  if (Array.isArray(raw)) {
+    return raw.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item).trim()).filter(Boolean);
+      }
+    } catch {
+      return [raw.trim()];
+    }
+  }
+  return [];
+};
+
+/** Демо-примеры с витрины (PROJECTS_UNIFIED.sql), не пользовательские проекты */
+const isShowcaseRow = (row: Record<string, unknown>) => {
+  if (row.is_showcase === true) return true;
+  if (row.is_showcase === false) return false;
+
+  const team = String(row.team_name || '').trim().toLowerCase();
+  const author = String(row.author_name || '').trim().toLowerCase();
+  return team === 'smart city tyumen' && author === 'платформа';
+};
+
+const isUserPublishedRow = (row: Record<string, unknown>) => !isShowcaseRow(row);
+
+const rowMatchesTechnology = (row: Record<string, unknown>, technology: string) => {
+  const needle = technology.trim().toLowerCase();
+  if (!needle) return true;
+
+  const technologies = getRowTechnologies(row);
+  if (technologies.some((tech) => tech.toLowerCase().includes(needle))) return true;
+
+  const textHaystack = [
+    row.title,
+    row.description,
+    row.problem,
+    row.note,
+    row.category,
+    row.direction,
+    ...technologies,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return textHaystack.includes(needle);
+};
+
 const rowMatchesFilters = (row: Record<string, unknown>, filters: ProjectSearchFilters): boolean => {
   if (
     filters.direction &&
@@ -337,15 +390,13 @@ const rowMatchesFilters = (row: Record<string, unknown>, filters: ProjectSearchF
     return false;
   }
 
-  if (filters.technology?.trim()) {
-    const needle = filters.technology.trim().toLowerCase();
-    const technologies = Array.isArray(row.technologies) ? (row.technologies as string[]) : [];
-    if (!technologies.some((tech) => tech.toLowerCase().includes(needle))) return false;
+  if (filters.technology?.trim() && !rowMatchesTechnology(row, filters.technology)) {
+    return false;
   }
 
   if (filters.query?.trim()) {
     const needle = filters.query.trim().toLowerCase();
-    const technologies = Array.isArray(row.technologies) ? (row.technologies as string[]) : [];
+    const technologies = getRowTechnologies(row);
     const coAuthors = Array.isArray(row.co_authors) ? (row.co_authors as string[]) : [];
     const haystack = [
       row.title,
@@ -368,61 +419,45 @@ const rowMatchesFilters = (row: Record<string, unknown>, filters: ProjectSearchF
   return true;
 };
 
-const fallbackProjectsToRows = (projects: ProjectData[]): Record<string, unknown>[] =>
-  projects.map((project) => ({
-    id: project.id,
-    title: project.title,
-    description: project.desc,
-    problem: '',
-    category: project.category,
-    direction: project.category,
-    status: project.status,
-    image_url: project.imageUrl,
-    author_name: project.team,
-    team_name: project.team,
-    co_authors: [],
-    technologies: project.tags,
-    looking_for_team: false,
-    votes: project.votes,
-    rating: project.rating,
-    created_at: null,
-  }));
+const queryPublishedProjectRows = async (columns: string, limit = PUBLIC_PROJECT_LIMIT) => {
+  schedulePromoteDueProjects();
+
+  const { data, error } = await runReadQuery(() =>
+    supabase
+      .from('projects')
+      .select(columns)
+      .eq('is_on_site', true)
+      .eq('moderation_status', REVIEW_STATUS.ACCEPTED)
+      .order('rating', { ascending: false, nullsFirst: false })
+      .order('votes', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit),
+  );
+
+  if (error) throw error;
+  return ((data || []) as Record<string, unknown>[]).filter(isUserPublishedRow);
+};
 
 const loadAllSearchRows = async (): Promise<Record<string, unknown>[]> => {
   if (!isSupabaseConfigured) {
-    return fallbackProjectsToRows(getSiteProjectsFallback());
+    return [];
   }
 
-  const queryRows = async (columns: string) => {
-    const { data, error } = await runReadQuery(() =>
-      supabase
-        .from('projects')
-        .select(columns)
-        .eq('is_on_site', true)
-        .eq('moderation_status', REVIEW_STATUS.ACCEPTED)
-        .limit(PUBLIC_PROJECT_LIMIT),
-    );
-    if (error) throw error;
-    return (data || []) as Record<string, unknown>[];
-  };
-
   try {
-    const rows = await queryRows(SEARCH_COLUMNS);
-    if (rows.length > 0) return rows;
+    return await queryPublishedProjectRows(SEARCH_COLUMNS);
   } catch (error) {
-    if (!isColumnError(error)) {
-      console.error('loadAllSearchRows:', error);
-    } else {
+    if (isColumnError(error)) {
       try {
-        const rows = await queryRows(LIST_COLUMNS_MINIMAL);
-        if (rows.length > 0) return rows;
+        return await queryPublishedProjectRows(LIST_COLUMNS_MINIMAL);
       } catch (minimalError) {
         console.error('loadAllSearchRows minimal:', minimalError);
       }
+    } else {
+      console.error('loadAllSearchRows:', error);
     }
   }
 
-  return fallbackProjectsToRows(await fetchProjects());
+  return [];
 };
 
 const sortSearchRows = (rows: Record<string, unknown>[], sortBy: ProjectSortBy = 'rating') => {
@@ -538,7 +573,7 @@ const isColumnError = (error: unknown) => {
 
 const normalizeRow = (row: Record<string, unknown>): ProjectData => {
   const coAuthors = Array.isArray(row.co_authors) ? (row.co_authors as string[]) : [];
-  const technologies = Array.isArray(row.technologies) ? (row.technologies as string[]) : [];
+  const technologies = getRowTechnologies(row);
   const status = normalizeProjectStatus(String(row.status || 'Идея'));
 
   return {
@@ -563,22 +598,8 @@ const normalizeRow = (row: Record<string, unknown>): ProjectData => {
 };
 
 const querySiteProjects = async (columns: string, limit = PUBLIC_PROJECT_LIMIT) => {
-  schedulePromoteDueProjects();
-
-  const { data, error } = await runReadQuery(() =>
-    supabase
-      .from('projects')
-      .select(columns)
-      .eq('is_on_site', true)
-      .eq('moderation_status', REVIEW_STATUS.ACCEPTED)
-      .order('rating', { ascending: false, nullsFirst: false })
-      .order('votes', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(limit),
-  );
-
-  if (error) throw error;
-  return ((data || []) as Record<string, unknown>[]).map((row) => normalizeRow(row));
+  const rows = await queryPublishedProjectRows(columns, limit);
+  return rows.map((row) => normalizeRow(row));
 };
 
 const loadSiteProjects = async (limit = PUBLIC_PROJECT_LIMIT): Promise<ProjectData[]> => {
@@ -587,17 +608,18 @@ const loadSiteProjects = async (limit = PUBLIC_PROJECT_LIMIT): Promise<ProjectDa
   }
 
   try {
-    const projects = await querySiteProjects(LIST_COLUMNS, limit);
-    if (projects.length > 0) return projects;
-    return limit < PUBLIC_PROJECT_LIMIT ? getTopRatedProjectsFallback(limit) : getSiteProjectsFallback();
+    return await querySiteProjects(LIST_COLUMNS, limit);
   } catch (error) {
     if (isColumnError(error)) {
-      const projects = await querySiteProjects(LIST_COLUMNS_MINIMAL, limit);
-      if (projects.length > 0) return projects;
+      try {
+        return await querySiteProjects(LIST_COLUMNS_MINIMAL, limit);
+      } catch (minimalError) {
+        console.error('loadSiteProjects minimal:', minimalError);
+      }
     } else {
       console.error('fetchProjects:', error);
     }
-    return limit < PUBLIC_PROJECT_LIMIT ? getTopRatedProjectsFallback(limit) : getSiteProjectsFallback();
+    return [];
   }
 };
 
@@ -639,7 +661,6 @@ export const fetchTopRatedProjects = async (limit = HOME_TOP_PROJECTS_LIMIT): Pr
 
 export const searchProjects = async (filters: ProjectSearchFilters): Promise<ProjectData[]> => {
   const sortBy = filters.sortBy || 'rating';
-  schedulePromoteDueProjects();
 
   let rows = await loadAllSearchRows();
 

@@ -57,7 +57,7 @@ const ProjectPortfolioView: React.FC<{
     <>
       <div className="mb-8">
         <h2 className="text-3xl font-bold text-white mb-2">Портфолио проектов</h2>
-        <p className="text-gray-400">Все проекты из базы Smart City Tyumen, отсортированы по рейтингу</p>
+        <p className="text-gray-400">Опубликованные проекты пользователей из базы данных, без демо-примеров</p>
       </div>
 
       {error && (
@@ -78,7 +78,7 @@ const ProjectPortfolioView: React.FC<{
 
       {!loading && projects.length === 0 && !error && (
         <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-gray-500 mb-12">
-          Пока нет проектов в базе. Создайте первый на вкладке «Создать проект».
+          Пока нет опубликованных пользовательских проектов. Создайте проект на вкладке «Создать проект» — после модерации он появится здесь.
         </div>
       )}
 
