@@ -216,6 +216,9 @@ const MY_PROJECT_COLUMNS =
 const LIST_COLUMNS_MINIMAL =
   'id, title, description, category, direction, status, image_url, author_name, team_name, co_authors, technologies, votes, rating, created_at';
 
+const SEARCH_COLUMNS =
+  'id, title, problem, description, category, direction, status, image_url, author_name, team_name, co_authors, technologies, looking_for_team, votes, rating, created_at';
+
 const SUBMITTED_COLUMNS_MINIMAL = 'id, title, description, status, category, created_at';
 
 const mapListToProjectData = (project: (typeof PROJECTS_LIST)[number]): ProjectData => {
@@ -271,14 +274,182 @@ const schedulePromoteDueProjects = () => {
   });
 };
 
+export type ProjectSortBy = 'rating' | 'votes' | 'title' | 'newest';
+
 export interface ProjectSearchFilters {
   query?: string;
   author?: string;
   participant?: string;
+  team?: string;
   direction?: string;
+  category?: string;
   technology?: string;
   status?: string;
+  lookingForTeam?: boolean;
+  sortBy?: ProjectSortBy;
 }
+
+const includesNeedle = (value: unknown, needle: string) =>
+  String(value ?? '')
+    .toLowerCase()
+    .includes(needle);
+
+const rowMatchesFilters = (row: Record<string, unknown>, filters: ProjectSearchFilters): boolean => {
+  if (filters.direction && !includesNeedle(row.direction ?? row.category, filters.direction)) {
+    return false;
+  }
+
+  if (filters.status && normalizeProjectStatus(String(row.status || '')) !== filters.status) {
+    return false;
+  }
+
+  if (filters.lookingForTeam && !row.looking_for_team) {
+    return false;
+  }
+
+  if (filters.author?.trim() && !includesNeedle(row.author_name, filters.author.trim())) {
+    return false;
+  }
+
+  if (filters.participant?.trim()) {
+    const needle = filters.participant.trim().toLowerCase();
+    const coAuthors = Array.isArray(row.co_authors) ? (row.co_authors as string[]) : [];
+    if (!coAuthors.some((name) => name.toLowerCase().includes(needle))) return false;
+  }
+
+  if (filters.team?.trim() && !includesNeedle(row.team_name, filters.team.trim())) {
+    return false;
+  }
+
+  if (filters.category?.trim()) {
+    const needle = filters.category.trim().toLowerCase();
+    if (!includesNeedle(row.category, needle) && !includesNeedle(row.direction, needle)) {
+      return false;
+    }
+  }
+
+  if (filters.technology?.trim()) {
+    const needle = filters.technology.trim().toLowerCase();
+    const technologies = Array.isArray(row.technologies) ? (row.technologies as string[]) : [];
+    if (!technologies.some((tech) => tech.toLowerCase().includes(needle))) return false;
+  }
+
+  if (filters.query?.trim()) {
+    const needle = filters.query.trim().toLowerCase();
+    const technologies = Array.isArray(row.technologies) ? (row.technologies as string[]) : [];
+    const coAuthors = Array.isArray(row.co_authors) ? (row.co_authors as string[]) : [];
+    const haystack = [
+      row.title,
+      row.description,
+      row.problem,
+      row.team_name,
+      row.author_name,
+      row.category,
+      row.direction,
+      ...technologies,
+      ...coAuthors,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    if (!haystack.includes(needle)) return false;
+  }
+
+  return true;
+};
+
+const filterFallbackProjects = (projects: ProjectData[], filters: ProjectSearchFilters): ProjectData[] =>
+  projects.filter((project) => {
+    if (filters.status && project.status !== filters.status) return false;
+
+    if (filters.direction && !project.category.toLowerCase().includes(filters.direction.toLowerCase())) {
+      return false;
+    }
+
+    if (filters.category && !project.category.toLowerCase().includes(filters.category.toLowerCase())) {
+      return false;
+    }
+
+    if (filters.team && !project.team.toLowerCase().includes(filters.team.toLowerCase())) {
+      return false;
+    }
+
+    if (
+      filters.technology &&
+      !project.tags.some((tag) => tag.toLowerCase().includes(filters.technology!.toLowerCase()))
+    ) {
+      return false;
+    }
+
+    if (filters.lookingForTeam) {
+      return false;
+    }
+
+    if (filters.author?.trim() || filters.participant?.trim()) {
+      return false;
+    }
+
+    if (filters.query?.trim()) {
+      const needle = filters.query.trim().toLowerCase();
+      const haystack = [project.title, project.desc, project.team, project.category, ...project.tags]
+        .join(' ')
+        .toLowerCase();
+      if (!haystack.includes(needle)) return false;
+    }
+
+    return true;
+  });
+
+const sortSearchRows = (rows: Record<string, unknown>[], sortBy: ProjectSortBy = 'rating') => {
+  const sorted = [...rows];
+
+  switch (sortBy) {
+    case 'votes':
+      return sorted.sort(
+        (a, b) => Number(b.votes ?? 0) - Number(a.votes ?? 0) || Number(b.rating ?? 0) - Number(a.rating ?? 0),
+      );
+    case 'title':
+      return sorted.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ru'));
+    case 'newest':
+      return sorted.sort(
+        (a, b) =>
+          new Date(String(b.created_at || 0)).getTime() - new Date(String(a.created_at || 0)).getTime(),
+      );
+    default:
+      return sorted.sort(
+        (a, b) =>
+          Number(b.rating ?? 0) - Number(a.rating ?? 0) ||
+          Number(b.votes ?? 0) - Number(a.votes ?? 0),
+      );
+  }
+};
+
+const sortSearchResults = (projects: ProjectData[], sortBy: ProjectSortBy = 'rating') => {
+  const sorted = [...projects];
+
+  switch (sortBy) {
+    case 'votes':
+      return sorted.sort((a, b) => b.votes - a.votes || b.rating - a.rating);
+    case 'title':
+      return sorted.sort((a, b) => a.title.localeCompare(b.title, 'ru'));
+    default:
+      return sortByRating(sorted);
+  }
+};
+
+const hasActiveSearchFilters = (filters: ProjectSearchFilters) =>
+  Boolean(
+    filters.query?.trim() ||
+      filters.author?.trim() ||
+      filters.participant?.trim() ||
+      filters.team?.trim() ||
+      filters.direction?.trim() ||
+      filters.category?.trim() ||
+      filters.technology?.trim() ||
+      filters.status?.trim() ||
+      filters.lookingForTeam,
+  );
 
 export const getProjectImageUrl = (
   url?: string | null,
@@ -457,58 +628,64 @@ export const fetchTopRatedProjects = async (limit = HOME_TOP_PROJECTS_LIMIT): Pr
 };
 
 export const searchProjects = async (filters: ProjectSearchFilters): Promise<ProjectData[]> => {
-  const hasFilters = Boolean(
-    filters.query?.trim() ||
-      filters.author?.trim() ||
-      filters.participant?.trim() ||
-      filters.direction?.trim() ||
-      filters.technology?.trim() ||
-      filters.status?.trim(),
-  );
+  const sortBy = filters.sortBy || 'rating';
 
-  if (!hasFilters) {
-    return fetchProjects();
+  if (!hasActiveSearchFilters(filters)) {
+    const projects = await fetchProjects();
+    return sortBy === 'rating' ? projects : sortSearchResults(projects, sortBy);
   }
 
   schedulePromoteDueProjects();
 
-  let query = supabase
-    .from('projects')
-    .select(LIST_COLUMNS)
-    .eq('is_on_site', true)
-    .eq('moderation_status', REVIEW_STATUS.ACCEPTED)
-    .order('rating', { ascending: false, nullsFirst: false })
-    .order('votes', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(PUBLIC_PROJECT_LIMIT);
-
-  if (filters.direction) query = query.ilike('direction', `%${filters.direction}%`);
-  if (filters.status) query = query.eq('status', filters.status);
-  if (filters.query?.trim()) query = query.ilike('title', `%${filters.query.trim()}%`);
-  if (filters.author?.trim()) query = query.ilike('author_name', `%${filters.author.trim()}%`);
-
-  const { data, error } = await runReadQuery(() => query);
-  if (error) throw error;
-
-  let rows = (data || []) as Record<string, unknown>[];
-
-  if (filters.participant?.trim()) {
-    const needle = filters.participant.trim().toLowerCase();
-    rows = rows.filter((row) => {
-      const coAuthors = Array.isArray(row.co_authors) ? (row.co_authors as string[]) : [];
-      return coAuthors.some((name) => name.toLowerCase().includes(needle));
-    });
+  if (!isSupabaseConfigured) {
+    const projects = await fetchProjects();
+    return enrichProjects(sortSearchResults(filterFallbackProjects(projects, filters), sortBy));
   }
 
-  if (filters.technology?.trim()) {
-    const needle = filters.technology.trim().toLowerCase();
-    rows = rows.filter((row) => {
-      const technologies = Array.isArray(row.technologies) ? (row.technologies as string[]) : [];
-      return technologies.some((tech) => tech.toLowerCase().includes(needle));
-    });
-  }
+  try {
+    const { data, error } = await runReadQuery(() =>
+      supabase
+        .from('projects')
+        .select(SEARCH_COLUMNS)
+        .eq('is_on_site', true)
+        .eq('moderation_status', REVIEW_STATUS.ACCEPTED)
+        .limit(PUBLIC_PROJECT_LIMIT),
+    );
+    if (error) throw error;
 
-  return rows.map((row) => normalizeRow(row));
+    let rows = (data || []) as Record<string, unknown>[];
+
+    rows = rows.filter((row) => rowMatchesFilters(row, filters));
+    rows = sortSearchRows(rows, sortBy);
+    return enrichProjects(rows.map((row) => normalizeRow(row)));
+  } catch (error) {
+    if (isColumnError(error)) {
+      try {
+        const { data, error: fallbackError } = await runReadQuery(() =>
+          supabase
+            .from('projects')
+            .select(LIST_COLUMNS_MINIMAL)
+            .eq('is_on_site', true)
+            .eq('moderation_status', REVIEW_STATUS.ACCEPTED)
+            .limit(PUBLIC_PROJECT_LIMIT),
+        );
+        if (fallbackError) throw fallbackError;
+
+        let rows = ((data || []) as Record<string, unknown>[]).filter((row) =>
+          rowMatchesFilters(row, filters),
+        );
+        rows = sortSearchRows(rows, sortBy);
+        return enrichProjects(rows.map((row) => normalizeRow(row)));
+      } catch (minimalError) {
+        console.error('searchProjects:', minimalError);
+      }
+    } else {
+      console.error('searchProjects:', error);
+    }
+
+    const projects = await fetchProjects();
+    return enrichProjects(sortSearchResults(filterFallbackProjects(projects, filters), sortBy));
+  }
 };
 
 const mapSubmittedRow = (row: {
@@ -916,11 +1093,12 @@ export interface TeamCreatePayload {
   team_name: string;
   mission: string;
   linked_project?: string;
+  linked_project_id?: string;
   required_skills: string[];
   looking_for?: string;
 }
 
-export const createProjectTeam = async (userId: string, payload: TeamCreatePayload) => {
+export const buildTeamDescription = (payload: TeamCreatePayload) => {
   const descriptionParts = [
     payload.mission.trim(),
     payload.linked_project?.trim() ? `Проект: ${payload.linked_project.trim()}` : '',
@@ -928,11 +1106,51 @@ export const createProjectTeam = async (userId: string, payload: TeamCreatePaylo
     payload.looking_for?.trim() ? `Ищем: ${payload.looking_for.trim()}` : '',
   ].filter(Boolean);
 
+  return descriptionParts.join('\n');
+};
+
+export const isTeamNameTaken = async (userId: string, teamName: string) => {
+  const teams = await fetchUserTeams(userId);
+  const normalized = teamName.trim().toLowerCase();
+  return teams.some((team) => team.team_name.trim().toLowerCase() === normalized);
+};
+
+export const validateTeamPayload = (payload: TeamCreatePayload) => {
+  const teamName = payload.team_name.trim();
+  const mission = payload.mission.trim();
+
+  if (teamName.length < 2) {
+    return 'Название команды должно содержать минимум 2 символа';
+  }
+
+  if (teamName.length > 80) {
+    return 'Название команды не должно превышать 80 символов';
+  }
+
+  if (mission.length < 10) {
+    return 'Опишите миссию команды хотя бы в нескольких предложениях (от 10 символов)';
+  }
+
+  if (mission.length > 2000) {
+    return 'Описание миссии слишком длинное (максимум 2000 символов)';
+  }
+
+  return null;
+};
+
+export const createProjectTeam = async (userId: string, payload: TeamCreatePayload) => {
+  const validationError = validateTeamPayload(payload);
+  if (validationError) throw new Error(validationError);
+
+  if (await isTeamNameTaken(userId, payload.team_name)) {
+    throw new Error('У вас уже есть команда с таким названием');
+  }
+
   const { data: team, error: teamError } = await supabase
     .from('teams')
     .insert({
       team_name: payload.team_name.trim(),
-      description: descriptionParts.join('\n'),
+      description: buildTeamDescription(payload),
       created_by: userId,
     })
     .select()

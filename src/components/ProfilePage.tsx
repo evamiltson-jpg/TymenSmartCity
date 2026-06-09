@@ -8,7 +8,6 @@ import {
   buildCertificate,
   buildLink,
   createUserProject,
-  createUserTeam,
   mergeManualSkills,
   removeCertificate,
   removeLink,
@@ -21,10 +20,12 @@ import {
   type ProjectApplication,
 } from '../services/projectApplicationService';
 import {
+  createProjectTeam,
   fetchMySubmittedProjects,
   formatProjectError,
   readSubmittedProjectsCache,
   type SubmittedProject,
+  type TeamCreatePayload,
 } from '../services/projectService';
 import { MySubmittedProjectModal } from './profile/MySubmittedProjectModal';
 import type { ProfileLink, UserProfile, UserType } from '../types/profile';
@@ -368,9 +369,9 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     }
   };
 
-  const handleCreateTeam = async (payload: { team_name: string; description: string }) => {
+  const handleCreateTeam = async (payload: TeamCreatePayload) => {
     if (!user) return;
-    await createUserTeam(user.id, payload);
+    await createProjectTeam(user.id, payload);
     await loadUserData();
     setSaveMessage('Команда создана');
   };
@@ -895,7 +896,12 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
 
       <ITQuizModal isOpen={showQuiz} onClose={() => setShowQuiz(false)} onNavigate={onNavigate} />
       <CreateProjectModal isOpen={showCreateProject} onClose={() => setShowCreateProject(false)} onSubmit={handleCreateProject} />
-      <CreateTeamModal isOpen={showCreateTeam} onClose={() => setShowCreateTeam(false)} onSubmit={handleCreateTeam} />
+      <CreateTeamModal
+        isOpen={showCreateTeam}
+        onClose={() => setShowCreateTeam(false)}
+        userId={user?.id}
+        onSubmit={handleCreateTeam}
+      />
       {managedProject && user && (
         <MySubmittedProjectModal
           projectId={managedProject.id}

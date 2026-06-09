@@ -130,7 +130,12 @@ export const ProjectsPage: React.FC<{ onNavigate?: (page: string) => void }> = (
       case 'create-project':
         return <ProjectCreateForm />;
       case 'create-team':
-        return <ProjectTeamCreateForm />;
+        return (
+          <ProjectTeamCreateForm
+            onNavigate={onNavigate}
+            onTeamCreated={() => setActiveTab('create-project')}
+          />
+        );
       default:
         return null;
     }
