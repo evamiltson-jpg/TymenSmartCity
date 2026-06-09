@@ -1,23 +1,55 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type { ProjectData } from '../types';
 import { getProjectImageUrl } from '../services/projectService';
+import {
+  getLocalVoteBonus,
+  getRemainingVotesToday,
+  hasVotedToday,
+  voteForProject,
+} from '../services/projectVoteService';
 import { ProjectStatusBadge } from './ProjectStatusBadge';
 
 interface ProjectDetailContentProps {
   project: ProjectData;
   onApply?: () => void;
-  rank?: number;
+  onVoted?: () => void;
 }
 
-const rankStyles: Record<number, string> = {
-  1: 'bg-yellow-400 text-black',
-  2: 'bg-gray-300 text-black',
-  3: 'bg-amber-700 text-white',
-};
-
-export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({ project, onApply, rank }) => {
+export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
+  project,
+  onApply,
+  onVoted,
+}) => {
+  const imageMeta = { id: project.id, title: project.title, category: project.category };
   const isApplyVisible = ['В разработке', 'Тестирование', 'Готов к внедрению', 'Идея'].includes(project.status);
   const ratingLabel = project.rating > 0 ? project.rating.toFixed(1) : '—';
+
+  const [votes, setVotes] = useState(project.votes + getLocalVoteBonus(String(project.id)));
+  const [voted, setVoted] = useState(hasVotedToday(String(project.id)));
+  const [remaining, setRemaining] = useState(getRemainingVotesToday());
+  const [voteMessage, setVoteMessage] = useState('');
+  const [voting, setVoting] = useState(false);
+
+  useEffect(() => {
+    setVotes(project.votes + getLocalVoteBonus(String(project.id)));
+    setVoted(hasVotedToday(String(project.id)));
+    setRemaining(getRemainingVotesToday());
+  }, [project.id, project.votes]);
+
+  const handleVote = async () => {
+    setVoting(true);
+    setVoteMessage('');
+    const result = await voteForProject(String(project.id));
+    setVoting(false);
+    setVoteMessage(result.message);
+    if (result.ok) {
+      const newVotes = votes + 1;
+      setVotes(newVotes);
+      setVoted(true);
+      setRemaining(getRemainingVotesToday());
+      onVoted?.();
+    }
+  };
 
   const handleApply = () => {
     if (onApply) {
@@ -30,36 +62,29 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({ proj
   return (
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row gap-4 sm:gap-5">
-        <div className="relative shrink-0 w-full sm:w-44 h-40 sm:h-44 rounded-xl overflow-hidden bg-gray-800">
+        <div className="shrink-0 w-full sm:w-44 h-40 sm:h-44 rounded-xl overflow-hidden bg-gray-800">
           <img
-            src={getProjectImageUrl(project.imageUrl)}
+            src={getProjectImageUrl(project.imageUrl, imageMeta)}
             alt={project.title}
             className="w-full h-full object-cover"
             onError={(e) => {
-              e.currentTarget.src = getProjectImageUrl(project.imageUrl || '');
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = getProjectImageUrl('', imageMeta);
             }}
           />
-          {rank != null && rank <= 8 && (
-            <span
-              className={`absolute top-2 left-2 px-2 py-1 rounded-lg text-xs font-black ${
-                rankStyles[rank] ?? 'bg-black/60 text-white'
-              }`}
-            >
-              #{rank}
-            </span>
-          )}
         </div>
 
         <div className="flex-1 min-w-0">
           <span className="text-yellow-400 text-xs font-bold uppercase tracking-wide">{project.category}</span>
-          <h2 className="text-xl sm:text-2xl font-bold text-white mt-1 mb-3 leading-tight">{project.title}</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-white mt-1 mb-2 leading-tight">{project.title}</h2>
 
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <ProjectStatusBadge status={project.status} />
-            <span className="text-xs text-gray-400">
-              {project.team} · {project.participants} уч.
-            </span>
+            <span className="text-gray-400 text-sm">{project.participants} участников</span>
           </div>
+
+          <p className="text-sm text-gray-400 mb-1">Команда</p>
+          <p className="text-lg sm:text-xl font-bold text-yellow-400 mb-3">{project.team}</p>
 
           <div className="flex flex-wrap gap-2">
             <span className="inline-flex items-center gap-1.5 bg-yellow-400/10 text-yellow-400 px-3 py-1.5 rounded-lg text-sm font-bold">
@@ -67,7 +92,7 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({ proj
               <span className="text-yellow-400/70 font-normal">/ 5.0</span>
             </span>
             <span className="inline-flex items-center gap-1.5 bg-white/5 text-gray-200 px-3 py-1.5 rounded-lg text-sm font-semibold">
-              🗳 {project.votes} голосов
+              🗳 {votes} голосов
             </span>
           </div>
         </div>
@@ -90,6 +115,22 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({ proj
           </div>
         </div>
       )}
+
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
+        <button
+          type="button"
+          onClick={handleVote}
+          disabled={voting || voted || remaining <= 0}
+          className="bg-sky-500 hover:bg-sky-400 disabled:bg-white/10 disabled:text-gray-500 text-white font-bold py-2.5 px-6 rounded-xl text-sm transition-colors"
+        >
+          {voted ? 'Вы проголосовали' : voting ? 'Отправка...' : 'Проголосовать'}
+        </button>
+        <span className="text-xs text-gray-500">
+          {remaining > 0 ? `Осталось голосов сегодня: ${remaining} из 5` : 'Лимит на сегодня исчерпан'}
+        </span>
+      </div>
+
+      {voteMessage && <p className="text-sm text-gray-300">{voteMessage}</p>}
 
       {isApplyVisible && (
         <button

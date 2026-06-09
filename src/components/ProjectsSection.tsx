@@ -21,8 +21,8 @@ export const ProjectsSection: React.FC = () => {
   const [allProjects, setAllProjects] = useState<ProjectData[]>(() => getTopRatedProjectsFallback());
   const [activeCategory, setActiveCategory] = useState(PROJECT_CATEGORIES[0]);
   const [selectedProject, setSelectedProject] = useState<ProjectData | null>(null);
-  const [selectedRank, setSelectedRank] = useState<number | undefined>();
   const [syncing, setSyncing] = useState(false);
+  const [voteRefresh, setVoteRefresh] = useState(0);
   const { lang } = useLanguage();
 
   useEffect(() => {
@@ -52,12 +52,6 @@ export const ProjectsSection: React.FC = () => {
     );
   }, [activeCategory, rankedProjects]);
 
-  const rankById = useMemo(() => {
-    const map = new Map<string, number>();
-    rankedProjects.forEach((p, index) => map.set(String(p.id), index + 1));
-    return map;
-  }, [rankedProjects]);
-
   return (
     <section className="py-8 sm:py-12">
       <div className="flex justify-between items-end mb-6 sm:mb-8 gap-4">
@@ -83,22 +77,15 @@ export const ProjectsSection: React.FC = () => {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
+      <div key={voteRefresh} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
         {filteredProjects.length > 0 ? (
-          filteredProjects.map((project) => {
-            const rank = rankById.get(String(project.id));
-            return (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                rank={rank}
-                onAction={() => {
-                  setSelectedProject(project);
-                  setSelectedRank(rank);
-                }}
-              />
-            );
-          })
+          filteredProjects.map((project) => (
+            <ProjectCard
+              key={project.id}
+              project={project}
+              onAction={() => setSelectedProject(project)}
+            />
+          ))
         ) : (
           <div className="col-span-full py-16 text-center border-2 border-dashed border-white/5 rounded-2xl text-gray-500 font-bold uppercase tracking-widest text-xs">
             Проекты в категории «{activeCategory}» не найдены
@@ -109,11 +96,8 @@ export const ProjectsSection: React.FC = () => {
       {selectedProject && (
         <ProjectDetailModal
           project={selectedProject}
-          rank={selectedRank}
-          onClose={() => {
-            setSelectedProject(null);
-            setSelectedRank(undefined);
-          }}
+          onClose={() => setSelectedProject(null)}
+          onVoted={() => setVoteRefresh((n) => n + 1)}
         />
       )}
     </section>

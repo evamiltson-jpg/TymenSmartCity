@@ -19,7 +19,7 @@ const READ_RETRY_DELAY_MS = 500;
 const PROMOTE_INTERVAL_MS = 60_000;
 const PROJECTS_CACHE_TTL_MS = 120_000;
 const STORAGE_CACHE_TTL_MS = 300_000;
-const SITE_STORAGE_KEY = 'tsc_site_projects_v3';
+const SITE_STORAGE_KEY = 'tsc_site_projects_v4';
 const submittedCacheKey = (userId: string) => `tsc_submitted_${userId}`;
 
 let lastPromoteAt = 0;
@@ -256,6 +256,8 @@ const enrichProjectImages = (projects: ProjectData[]): ProjectData[] =>
     }),
   }));
 
+const enrichProjects = (projects: ProjectData[]) => enrichProjectImages(projects);
+
 export const getTopRatedProjectsFallback = (limit = HOME_TOP_PROJECTS_LIMIT): ProjectData[] =>
   sortByRating(getSiteProjectsFallback()).slice(0, limit);
 
@@ -435,18 +437,18 @@ const refreshSiteProjects = async (): Promise<ProjectData[]> => {
 
 export const fetchProjects = async (): Promise<ProjectData[]> => {
   if (siteProjectsCache && Date.now() - siteProjectsCache.at < PROJECTS_CACHE_TTL_MS) {
-    return enrichProjectImages(siteProjectsCache.data);
+    return enrichProjects(siteProjectsCache.data);
   }
 
   const stored = readStorageCache<ProjectData[]>(SITE_STORAGE_KEY, STORAGE_CACHE_TTL_MS);
   if (stored?.length) {
-    const enriched = enrichProjectImages(stored);
+    const enriched = enrichProjects(stored);
     siteProjectsCache = { at: Date.now(), data: enriched };
     void refreshSiteProjects().catch((error) => console.warn('Фоновое обновление проектов:', error));
     return enriched;
   }
 
-  return enrichProjectImages(await refreshSiteProjects());
+  return enrichProjects(await refreshSiteProjects());
 };
 
 export const fetchTopRatedProjects = async (limit = HOME_TOP_PROJECTS_LIMIT): Promise<ProjectData[]> => {

@@ -4,17 +4,21 @@ import { ProjectDetailContent } from './ProjectDetailContent';
 
 interface ProjectDetailModalProps {
   project: ProjectData;
-  rank?: number;
   onClose: () => void;
+  onVoted?: () => void;
 }
 
-export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({ project, rank, onClose }) => (
+export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({
+  project,
+  onClose,
+  onVoted,
+}) => (
   <div
-    className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200"
+    className="fixed inset-0 z-[300] flex items-start justify-center p-4 pt-6 sm:pt-10 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto"
     onClick={onClose}
   >
     <div
-      className="bg-[#122e41] border border-white/10 w-full max-w-2xl rounded-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto"
+      className="bg-[#122e41] border border-white/10 w-full max-w-2xl rounded-2xl shadow-2xl relative mb-8"
       onClick={(e) => e.stopPropagation()}
     >
       <button
@@ -27,7 +31,7 @@ export const ProjectDetailModal: React.FC<ProjectDetailModalProps> = ({ project,
       </button>
 
       <div className="p-5 sm:p-6">
-        <ProjectDetailContent project={project} rank={rank} />
+        <ProjectDetailContent project={project} onVoted={onVoted} />
       </div>
     </div>
   </div>

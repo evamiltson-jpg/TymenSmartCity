@@ -3,8 +3,8 @@ import { ProjectData } from '../types';
 import { ProjectSearchForm } from './ProjectSearchForm';
 import { ProjectCreateForm } from './ProjectCreateForm';
 import { ProjectTeamCreateForm } from './ProjectTeamCreateForm';
-import { ProjectDetailView } from './ProjectDetailView';
 import { ProjectCard } from './ProjectCard';
+import { ProjectDetailModal } from './ProjectDetailModal';
 import {
   fetchProjects,
   formatProjectError,
@@ -28,45 +28,29 @@ const filterPillClass = (active: boolean) =>
   }`;
 
 const ProjectPortfolioView: React.FC<{
-  onProjectSelect: (project: ProjectData, rank?: number) => void;
-}> = ({ onProjectSelect }) => {
-  const [allProjects, setAllProjects] = useState<ProjectData[]>(() => getSiteProjectsFallback());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    fetchProjects()
-      .then((projects) => {
-        setAllProjects(projects);
-        setError('');
-      })
-      .catch((err) => setError(formatProjectError(err)))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const rankById = useMemo(() => {
-    const map = new Map<string, number>();
-    allProjects.forEach((p, index) => map.set(String(p.id), index + 1));
-    return map;
-  }, [allProjects]);
-
+  projects: ProjectData[];
+  loading: boolean;
+  error: string;
+  voteRefresh: number;
+  onProjectSelect: (project: ProjectData) => void;
+}> = ({ projects, loading, error, voteRefresh, onProjectSelect }) => {
   const stats = useMemo(() => {
-    const inProgress = allProjects.filter((p) =>
+    const inProgress = projects.filter((p) =>
       ['В разработке', 'Тестирование', 'Идея'].includes(p.status),
     ).length;
-    const participants = allProjects.reduce((sum, p) => sum + p.participants, 0);
+    const participants = projects.reduce((sum, p) => sum + p.participants, 0);
     const avgRating =
-      allProjects.length > 0
-        ? (allProjects.reduce((sum, p) => sum + p.rating, 0) / allProjects.length).toFixed(1)
+      projects.length > 0
+        ? (projects.reduce((sum, p) => sum + p.rating, 0) / projects.length).toFixed(1)
         : '0';
 
     return [
-      { val: String(allProjects.length), label: 'Всего проектов' },
+      { val: String(projects.length), label: 'Всего проектов' },
       { val: String(inProgress), label: 'В работе' },
       { val: String(participants), label: 'Участников' },
       { val: avgRating, label: 'Средний рейтинг' },
     ];
-  }, [allProjects]);
+  }, [projects]);
 
   return (
     <>
@@ -81,22 +65,17 @@ const ProjectPortfolioView: React.FC<{
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 mb-12">
+      <div key={voteRefresh} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 mb-12">
         {loading
           ? [1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i} className="h-[340px] bg-white/5 animate-pulse rounded-2xl" />
             ))
-          : allProjects.map((p) => (
-              <ProjectCard
-                key={p.id}
-                project={p}
-                rank={rankById.get(String(p.id))}
-                onAction={() => onProjectSelect(p, rankById.get(String(p.id)))}
-              />
+          : projects.map((p) => (
+              <ProjectCard key={p.id} project={p} onAction={() => onProjectSelect(p)} />
             ))}
       </div>
 
-      {!loading && allProjects.length === 0 && !error && (
+      {!loading && projects.length === 0 && !error && (
         <div className="rounded-2xl border border-dashed border-white/10 p-12 text-center text-gray-500 mb-12">
           Пока нет проектов в базе. Создайте первый на вкладке «Создать проект».
         </div>
@@ -116,42 +95,36 @@ const ProjectPortfolioView: React.FC<{
 
 export const ProjectsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('portfolio');
+  const [allProjects, setAllProjects] = useState<ProjectData[]>(() => getSiteProjectsFallback());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [selectedProject, setSelectedProject] = useState<ProjectData | null>(null);
-  const [selectedRank, setSelectedRank] = useState<number | undefined>();
+  const [voteRefresh, setVoteRefresh] = useState(0);
 
-  const renderContent = () => {
-    if (selectedProject) {
-      return (
-        <ProjectDetailView
-          project={selectedProject}
-          rank={selectedRank}
-          onBack={() => {
-            setSelectedProject(null);
-            setSelectedRank(undefined);
-          }}
-        />
-      );
-    }
+  useEffect(() => {
+    fetchProjects()
+      .then((projects) => {
+        setAllProjects(projects);
+        setError('');
+      })
+      .catch((err) => setError(formatProjectError(err)))
+      .finally(() => setLoading(false));
+  }, []);
 
+  const renderTabContent = () => {
     switch (activeTab) {
       case 'portfolio':
         return (
           <ProjectPortfolioView
-            onProjectSelect={(project, rank) => {
-              setSelectedProject(project);
-              setSelectedRank(rank);
-            }}
+            projects={allProjects}
+            loading={loading}
+            error={error}
+            voteRefresh={voteRefresh}
+            onProjectSelect={setSelectedProject}
           />
         );
       case 'search':
-        return (
-          <ProjectSearchForm
-            onProjectSelect={(project) => {
-              setSelectedProject(project);
-              setSelectedRank(undefined);
-            }}
-          />
-        );
+        return <ProjectSearchForm onProjectSelect={setSelectedProject} />;
       case 'create-project':
         return <ProjectCreateForm />;
       case 'create-team':
@@ -163,25 +136,31 @@ export const ProjectsPage: React.FC = () => {
 
   return (
     <div className="animate-in fade-in duration-700 pb-20">
-      {!selectedProject && (
-        <div className="flex flex-wrap gap-3 mb-8">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => {
-                setActiveTab(tab.id);
-                setSelectedProject(null);
-              }}
-              className={filterPillClass(activeTab === tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="flex flex-wrap gap-3 mb-8">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => {
+              setActiveTab(tab.id);
+              setSelectedProject(null);
+            }}
+            className={filterPillClass(activeTab === tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      {renderContent()}
+      {renderTabContent()}
+
+      {selectedProject && (
+        <ProjectDetailModal
+          project={selectedProject}
+          onClose={() => setSelectedProject(null)}
+          onVoted={() => setVoteRefresh((n) => n + 1)}
+        />
+      )}
     </div>
   );
 };

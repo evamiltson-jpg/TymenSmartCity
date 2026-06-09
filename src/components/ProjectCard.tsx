@@ -1,23 +1,17 @@
 import React from 'react';
 import { getProjectImageUrl } from '../services/projectService';
+import { getLocalVoteBonus } from '../services/projectVoteService';
 import type { ProjectData } from '../types';
 import { ProjectStatusBadge } from './ProjectStatusBadge';
 
 const actionButtonClass =
   'w-full inline-flex justify-center bg-yellow-400/10 hover:bg-yellow-400 text-yellow-400 hover:text-black py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all mt-3';
 
-const rankStyles: Record<number, string> = {
-  1: 'bg-yellow-400 text-black ring-yellow-300',
-  2: 'bg-gray-200 text-black ring-gray-100',
-  3: 'bg-amber-700 text-white ring-amber-500',
-};
-
 interface ProjectCardProps {
   project: ProjectData;
   onAction?: () => void;
   actionLabel?: string;
   as?: 'div' | 'button';
-  rank?: number;
 }
 
 export const ProjectCard: React.FC<ProjectCardProps> = ({
@@ -25,41 +19,26 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
   onAction,
   actionLabel = 'Подробнее',
   as = 'div',
-  rank,
 }) => {
-  const ratingLabel =
-    project.rating > 0 ? project.rating.toFixed(1) : String(project.votes);
+  const imageMeta = { id: project.id, title: project.title, category: project.category };
+  const voteBonus = getLocalVoteBonus(String(project.id));
+  const displayVotes = project.votes + voteBonus;
+  const ratingLabel = project.rating > 0 ? project.rating.toFixed(1) : String(displayVotes);
 
   const content = (
     <>
       <div className="h-36 sm:h-40 relative overflow-hidden bg-gray-800">
         <img
-          src={getProjectImageUrl(project.imageUrl, {
-            id: project.id,
-            title: project.title,
-            category: project.category,
-          })}
+          src={getProjectImageUrl(project.imageUrl, imageMeta)}
           className="w-full h-full object-cover grayscale-[0.3] group-hover:grayscale-0 group-hover:scale-105 transition-all duration-500"
           alt={project.title}
           loading="lazy"
           onError={(e) => {
-            e.currentTarget.src = getProjectImageUrl(project.imageUrl, {
-              id: project.id,
-              title: project.title,
-              category: project.category,
-            });
+            e.currentTarget.onerror = null;
+            e.currentTarget.src = getProjectImageUrl('', imageMeta);
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#122e41] via-[#122e41]/20 to-transparent" />
-        {rank != null && (
-          <span
-            className={`absolute top-3 left-3 px-2 py-1 rounded-lg text-xs font-black ring-1 ${
-              rankStyles[rank] ?? 'bg-black/70 text-white ring-white/20'
-            }`}
-          >
-            #{rank}
-          </span>
-        )}
         <ProjectStatusBadge status={project.status} className="absolute top-3 right-3" />
         <span className="absolute bottom-3 left-4 text-yellow-400 text-xs font-bold uppercase tracking-wide drop-shadow-md">
           {project.category}
@@ -71,9 +50,9 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
           {project.title}
         </h3>
 
-        <p className="text-gray-300 text-sm leading-relaxed mb-3 line-clamp-3 flex-grow">
-          {project.desc}
-        </p>
+        <p className="text-gray-300 text-sm leading-relaxed mb-2 line-clamp-3 flex-grow">{project.desc}</p>
+
+        <p className="text-base font-bold text-yellow-400/90 mb-3 truncate">{project.team}</p>
 
         {project.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-3">
@@ -89,15 +68,10 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({
         )}
 
         <div className="flex justify-between items-center pt-3 border-t border-white/10 text-xs sm:text-sm font-semibold">
-          <span className="text-gray-400 truncate mr-2">{project.team}</span>
+          <span className="text-gray-400 truncate mr-2">{displayVotes} голосов</span>
           <span className="text-yellow-400 shrink-0 flex items-center gap-1">
             <span className="text-base leading-none">★</span>
             <span>{ratingLabel}</span>
-            {project.participants > 0 && (
-              <span className="text-gray-500 font-normal ml-1 hidden sm:inline">
-                · {project.participants} уч.
-              </span>
-            )}
           </span>
         </div>
 

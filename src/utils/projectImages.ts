@@ -1,17 +1,28 @@
 import { PROJECTS_LIST } from '../constants';
 
-const STOCK_POOL = PROJECTS_LIST.map((p) => p.imageUrl).filter(Boolean);
+const baseUrl = import.meta.env.BASE_URL || './';
 
-const STOCK_BY_CATEGORY: Record<string, string> = {
-  Транспорт: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=800&q=80',
-  Экология: 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=800&q=80',
-  Урбанистика: 'https://images.unsplash.com/photo-1557310717-d6bea9f36682?auto=format&fit=crop&w=800&q=80',
-  Социальное: 'https://images.unsplash.com/photo-1559027615-cd91459a397e?auto=format&fit=crop&w=800&q=80',
-  Безопасность: 'https://images.unsplash.com/photo-1473968512647-3e447244af8f?auto=format&fit=crop&w=800&q=80',
-  Образование: 'https://images.unsplash.com/photo-1592478411213-6153e4ebc07d?auto=format&fit=crop&w=800&q=80',
-  Цифровизация: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=800&q=80',
-  ЖКХ: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=800&q=80',
+const localImage = (file: string) => `${baseUrl}project_images/${file}`.replace(/\/+/g, '/');
+
+const LOCAL_BY_TITLE: Record<string, string> = {
+  'SmartTraffic AI': localImage('traffic.jpg'),
+  'EcoBin Sensors': localImage('ecology.jpg'),
+  SolarBench: localImage('urban.jpg'),
+  'HelpHand App': localImage('social.jpg'),
+  SkyPatrol: localImage('safety.jpg'),
+  'EduVR History': localImage('education.png'),
 };
+
+const LOCAL_BY_CATEGORY: Record<string, string> = {
+  Транспорт: localImage('traffic.jpg'),
+  Экология: localImage('ecology.jpg'),
+  Урбанистика: localImage('urban.jpg'),
+  Социальное: localImage('social.jpg'),
+  Безопасность: localImage('safety.jpg'),
+  Образование: localImage('education.png'),
+};
+
+const LOCAL_POOL = Object.values(LOCAL_BY_TITLE);
 
 const hashString = (value: string) => {
   let hash = 0;
@@ -25,26 +36,34 @@ const hashString = (value: string) => {
 export const isPlaceholderProjectImage = (url?: string | null) => {
   if (!url?.trim()) return true;
   const lower = url.toLowerCase();
-  return lower.includes('city_logo') || lower.includes('city-logo');
+  return (
+    lower.includes('city_logo') ||
+    lower.includes('city-logo') ||
+    lower.includes('unsplash.com') ||
+    lower.includes('picsum.photos')
+  );
 };
 
 export const resolveProjectImageUrl = (
   url: string | null | undefined,
   meta: { category?: string; id?: string | number; title?: string } = {},
 ) => {
-  if (url?.trim() && !isPlaceholderProjectImage(url)) return url.trim();
-
   const title = meta.title?.trim();
+
+  if (title && LOCAL_BY_TITLE[title]) return LOCAL_BY_TITLE[title];
+
   const fromList = PROJECTS_LIST.find(
     (p) =>
       (meta.id != null && String(p.id) === String(meta.id)) ||
       (title && p.title.toLowerCase() === title.toLowerCase()),
   );
-  if (fromList?.imageUrl) return fromList.imageUrl;
+  if (fromList?.title && LOCAL_BY_TITLE[fromList.title]) return LOCAL_BY_TITLE[fromList.title];
+
+  if (url?.trim() && !isPlaceholderProjectImage(url)) return url.trim();
 
   const category = meta.category?.trim();
-  if (category && STOCK_BY_CATEGORY[category]) return STOCK_BY_CATEGORY[category];
+  if (category && LOCAL_BY_CATEGORY[category]) return LOCAL_BY_CATEGORY[category];
 
   const seed = String(meta.id ?? title ?? category ?? 'default');
-  return STOCK_POOL[hashString(seed) % STOCK_POOL.length] || STOCK_POOL[0];
+  return LOCAL_POOL[hashString(seed) % LOCAL_POOL.length] || localImage('default.jpg');
 };
