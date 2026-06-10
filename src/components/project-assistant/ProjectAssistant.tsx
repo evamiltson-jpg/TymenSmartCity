@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AiHistoryMessage,
   ASSISTANT_NAME,
+  buildEventsContext,
   MAX_SESSION_MESSAGES,
   PROJECT_QUICK_PROMPTS,
   ProjectBrief,
@@ -11,26 +12,42 @@ import {
   sendAiMessage,
 } from '../../services/aiService';
 import { parseAiLinks } from '../../utils/parseAiLinks';
-import { supabase } from '../../services/supabase';
+import type { AiLinkClickPayload } from '../../utils/parseAiLinks';
 import { InfoModal } from '../InfoModal';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   fetchMyProjectById,
   fetchMySubmittedProjects,
+  updateMyProject,
   type MyProjectDetail,
   type SubmittedProject,
 } from '../../services/projectService';
+import {
+  archiveAndReset,
+  loadChatState,
+  saveChatState,
+  type StoredChatMessage,
+} from '../../utils/chatStorage';
+import {
+  extractProposals,
+  extractTimelineItems,
+  stripProposals,
+  type ProshaProposal,
+} from '../../utils/proshaSuggestions';
+import { resolveEventLink, resolveProjectCard } from '../../utils/resolveAiCard';
+import { ProshaProposalCard } from './ProshaProposalCard';
 
-interface ChatMessage {
-  role: 'user' | 'ai';
-  text: string;
-}
+const BRIEF_KEY = 'project_assistant_brief_v2';
+const CHAT_KEY = 'prosha_chat_v1';
 
-const STORAGE_KEY = 'project_assistant_brief_v2';
+const WELCOME: StoredChatMessage = {
+  role: 'ai',
+  text: `Привет! Я ${ASSISTANT_NAME} — твой добрый помощник по проекту 🌱\n\nРасскажи идею или привяжи готовый проект — помогу с названием, планом, командой и конкурсами. Ты делаешь — я подсказываю!`,
+};
 
 const STAGE_OPTIONS: { value: ProjectBrief['stage']; label: string }[] = [
   { value: 'idea', label: '💡 Идея' },
-  { value: 'development', label: '🔧 В разработке' },
+  { value: 'development', label: '🔧 Разработка' },
   { value: 'mvp', label: '🚀 MVP' },
   { value: 'pitch', label: '🎯 Питч' },
 ];
@@ -45,7 +62,7 @@ const defaultBrief: ProjectBrief = {
 
 function loadBrief(): ProjectBrief {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(BRIEF_KEY);
     if (raw) return { ...defaultBrief, ...JSON.parse(raw) };
   } catch {
     /* ignore */
@@ -53,53 +70,62 @@ function loadBrief(): ProjectBrief {
   return { ...defaultBrief };
 }
 
-function extractTimelineItems(text: string): { week: string; title: string }[] {
-  const lines = text.split('\n');
-  const items: { week: string; title: string }[] = [];
-  for (const line of lines) {
-    const m = line.match(/^(?:[-•*]|\d+\.)\s*(?:недел[яи]\s*)?(\d+|[\d.]+)\s*[-–—:]\s*(.+)$/i);
-    if (m) items.push({ week: m[1], title: m[2].trim() });
-  }
-  return items.slice(0, 6);
+interface ChatMessage extends StoredChatMessage {
+  proposals?: ProshaProposal[];
+  dismissedProposals?: boolean;
 }
 
 export const ProjectAssistant: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
+  const chatInit = loadChatState(CHAT_KEY, WELCOME);
+
   const [brief, setBrief] = useState<ProjectBrief>(loadBrief);
   const [linkedDetail, setLinkedDetail] = useState<MyProjectDetail | null>(null);
   const [myProjects, setMyProjects] = useState<SubmittedProject[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [linkingProject, setLinkingProject] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: 'ai',
-      text: `Привет! Я ${ASSISTANT_NAME} — твой проектный помощник 🌱\n\nПомогу с названием, описанием, задачами, командой, таймлайном и конкурсами. Привяжи существующий проект из списка или опиши новую идею. Я советую — реализуете вы!`,
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(chatInit.messages);
+  const [archives, setArchives] = useState(chatInit.archives);
+  const [viewArchiveId, setViewArchiveId] = useState<string | null>(null);
+  const [sessionCount, setSessionCount] = useState(chatInit.sessionCount);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sessionCount, setSessionCount] = useState(0);
+  const [savingProposal, setSavingProposal] = useState(false);
   const [techInput, setTechInput] = useState('');
   const [selectedItem, setSelectedItem] = useState<Record<string, unknown> | null>(null);
   const [timelinePreview, setTimelinePreview] = useState<{ week: string; title: string }[]>([]);
+  const [eventsContext, setEventsContext] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const displayedMessages = viewArchiveId
+    ? (archives.find((a) => a.id === viewArchiveId)?.messages as ChatMessage[]) ?? messages
+    : messages;
+
+  const sessionLimitReached = !viewArchiveId && sessionCount >= MAX_SESSION_MESSAGES;
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(brief));
+    localStorage.setItem(BRIEF_KEY, JSON.stringify(brief));
   }, [brief]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (!viewArchiveId) {
+      saveChatState(CHAT_KEY, { messages, sessionCount, archives });
     }
-  }, [messages, loading]);
+  }, [messages, sessionCount, archives, viewArchiveId]);
+
+  useEffect(() => {
+    buildEventsContext().then(setEventsContext).catch(() => setEventsContext(''));
+  }, []);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [displayedMessages, loading]);
 
   useEffect(() => {
     if (!isAuthenticated || !user?.id) {
       setMyProjects([]);
       return;
     }
-
     setLoadingProjects(true);
     fetchMySubmittedProjects(user.id)
       .then(setMyProjects)
@@ -112,16 +138,14 @@ export const ProjectAssistant: React.FC = () => {
       setLinkedDetail(null);
       return;
     }
-
     let cancelled = false;
     fetchMyProjectById(brief.linkedProjectId, user.id)
-      .then((detail) => {
-        if (!cancelled) setLinkedDetail(detail);
+      .then((d) => {
+        if (!cancelled) setLinkedDetail(d);
       })
       .catch(() => {
         if (!cancelled) setLinkedDetail(null);
       });
-
     return () => {
       cancelled = true;
     };
@@ -136,24 +160,16 @@ export const ProjectAssistant: React.FC = () => {
       }));
   }, [messages]);
 
-  const handleLinkClick = async ({ type, id, label }: { type: string; id: string; label: string }) => {
-    const table = type === 'проект' ? 'projects' : type === 'команда' ? 'teams' : 'services';
-    const { data, error } = await supabase.from(table).select('*').eq('id', id).single();
-
-    if (error || !data) {
-      alert('Карточка не найдена в базе.');
+  const handleLinkClick = async ({ type, id, label }: AiLinkClickPayload) => {
+    if (type === 'событие') {
+      const link = await resolveEventLink(id);
+      if (link) window.open(link, '_blank', 'noopener,noreferrer');
       return;
     }
-
-    setSelectedItem({
-      title: data.title ?? data.name ?? label,
-      desc: data.description ?? data.desc ?? '',
-      category: data.category ?? data.direction,
-      image: data.image_url,
-      isService: type === 'сервис',
-      buttonText: type === 'проект' ? 'Подать заявку' : data.button_text || 'Перейти',
-      status: type === 'проект' ? data.status : undefined,
-    });
+    if (type === 'проект') {
+      const card = await resolveProjectCard(id, label);
+      if (card) setSelectedItem(card);
+    }
   };
 
   const handleSelectProject = async (projectId: string) => {
@@ -162,7 +178,6 @@ export const ProjectAssistant: React.FC = () => {
       setLinkedDetail(null);
       return;
     }
-
     if (!user?.id) return;
 
     setLinkingProject(true);
@@ -172,14 +187,13 @@ export const ProjectAssistant: React.FC = () => {
         alert('Не удалось загрузить проект.');
         return;
       }
-      const nextBrief = myProjectToBrief(detail);
-      setBrief(nextBrief);
+      setBrief(myProjectToBrief(detail));
       setLinkedDetail(detail);
       setMessages((prev) => [
         ...prev,
         {
           role: 'ai',
-          text: `Отлично! Привязала проект «${detail.title}». Теперь я знаю контекст — спрашивайте про задачи, команду или конкурсы 🎯`,
+          text: `Супер! Привязала «${detail.title}» 🔗 Теперь советы будут точнее.`,
         },
       ]);
     } catch {
@@ -189,20 +203,79 @@ export const ProjectAssistant: React.FC = () => {
     }
   };
 
-  const sendMessage = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || loading) return;
+  const applyProposalLocally = (proposal: ProshaProposal) => {
+    setBrief((b) => {
+      const next = { ...b };
+      if (proposal.field === 'title') next.title = proposal.value;
+      if (proposal.field === 'description') next.description = proposal.value;
+      if (proposal.field === 'problem') {
+        next.description = [proposal.value, b.description].filter(Boolean).join('\n\n');
+      }
+      if (proposal.field === 'expected_result') {
+        next.description = [b.description, `Результат: ${proposal.value}`].filter(Boolean).join('\n\n');
+      }
+      if (proposal.field === 'status') {
+        if (/mvp/i.test(proposal.value)) next.stage = 'mvp';
+        else if (/питч|защит/i.test(proposal.value)) next.stage = 'pitch';
+        else if (/разраб|работ/i.test(proposal.value)) next.stage = 'development';
+      }
+      return next;
+    });
+  };
 
-    if (sessionCount >= MAX_SESSION_MESSAGES) {
+  const handleAcceptProposal = async (msgIndex: number, proposal: ProshaProposal) => {
+    setSavingProposal(true);
+    try {
+      if (brief.linkedProjectId && user?.id && linkedDetail) {
+        const payload = {
+          title: proposal.field === 'title' ? proposal.value : linkedDetail.title,
+          problem: proposal.field === 'problem' ? proposal.value : linkedDetail.problem,
+          description: proposal.field === 'description' ? proposal.value : linkedDetail.description,
+          expected_result:
+            proposal.field === 'expected_result' ? proposal.value : linkedDetail.expected_result,
+          note: linkedDetail.note ?? null,
+          category: linkedDetail.category,
+          status: proposal.field === 'status' ? proposal.value : linkedDetail.status,
+        };
+        await updateMyProject(brief.linkedProjectId, user.id, payload);
+        const refreshed = await fetchMyProjectById(brief.linkedProjectId, user.id);
+        if (refreshed) {
+          setLinkedDetail(refreshed);
+          setBrief(myProjectToBrief(refreshed));
+        }
+      } else {
+        applyProposalLocally(proposal);
+      }
+
+      setMessages((prev) =>
+        prev.map((m, i) =>
+          i === msgIndex ? { ...m, proposals: undefined, dismissedProposals: true } : m,
+        ),
+      );
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'ai',
-          text: `Лимит сессии исчерпан (${MAX_SESSION_MESSAGES} сообщений). Нажмите «Новая сессия», чтобы продолжить.`,
-        },
+        { role: 'ai', text: `Записала в проект: ${proposal.label} ✅` },
       ]);
-      return;
+    } catch {
+      alert('Не удалось сохранить. Попробуйте в профиле вручную.');
+    } finally {
+      setSavingProposal(false);
     }
+  };
+
+  const handleRejectProposal = (msgIndex: number) => {
+    setMessages((prev) =>
+      prev.map((m, i) =>
+        i === msgIndex ? { ...m, proposals: undefined, dismissedProposals: true } : m,
+      ),
+    );
+  };
+
+  const sendMessage = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || loading || viewArchiveId) return;
+
+    if (sessionLimitReached) return;
 
     setInput('');
     const priorHistory = buildApiHistory();
@@ -211,35 +284,48 @@ export const ProjectAssistant: React.FC = () => {
     setLoading(true);
     setSessionCount(nextCount);
 
-    const remaining = MAX_SESSION_MESSAGES - nextCount;
-    const warnText = getSessionWarning(remaining);
+    const warnText = getSessionWarning(MAX_SESSION_MESSAGES - nextCount);
 
     try {
-      const reply = await sendAiMessage({
+      const rawReply = await sendAiMessage({
         mode: 'project',
         message: trimmed,
         history: priorHistory,
+        eventsContext,
         projectContext: projectBriefToContext(brief, linkedDetail),
       });
 
+      const proposals = extractProposals(rawReply);
+      const cleanReply = stripProposals(rawReply);
+
       setMessages((prev) => {
-        const next: ChatMessage[] = [...prev, { role: 'ai', text: reply }];
+        const next: ChatMessage[] = [
+          ...prev,
+          {
+            role: 'ai',
+            text: cleanReply,
+            proposals: proposals.length ? proposals : undefined,
+          },
+        ];
         if (warnText) next.push({ role: 'ai', text: warnText });
+        if (nextCount >= MAX_SESSION_MESSAGES) {
+          next.push({
+            role: 'ai',
+            text: `📌 Лимит сессии достигнут — новые вопросы в «Новой сессии». Этот диалог сохранён, можно перечитать.`,
+          });
+        }
         return next;
       });
 
-      if (/таймлайн|недел|этап/i.test(trimmed) || /недел/i.test(reply)) {
-        const items = extractTimelineItems(reply);
+      if (/таймлайн|недел|этап/i.test(trimmed) || /недел/i.test(cleanReply)) {
+        const items = extractTimelineItems(cleanReply);
         if (items.length) setTimelinePreview(items);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Неизвестная ошибка';
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'ai',
-          text: `Не удалось связаться с ${ASSISTANT_NAME}: ${msg}`,
-        },
+        { role: 'ai', text: `${ASSISTANT_NAME} не смогла ответить: ${msg}` },
       ]);
     } finally {
       setLoading(false);
@@ -247,13 +333,11 @@ export const ProjectAssistant: React.FC = () => {
   };
 
   const resetSession = () => {
+    const next = archiveAndReset(CHAT_KEY, WELCOME, { messages, sessionCount, archives });
+    setMessages(next.messages);
+    setArchives(next.archives);
     setSessionCount(0);
-    setMessages([
-      {
-        role: 'ai',
-        text: `Новая сессия! ${ASSISTANT_NAME} снова на связи — опишите идею, привяжите проект или выберите быстрый вопрос.`,
-      },
-    ]);
+    setViewArchiveId(null);
     setTimelinePreview([]);
   };
 
@@ -266,7 +350,7 @@ export const ProjectAssistant: React.FC = () => {
 
   const remaining = MAX_SESSION_MESSAGES - sessionCount;
   const sessionProgress = Math.min(100, (sessionCount / MAX_SESSION_MESSAGES) * 100);
-  const isLowSession = remaining <= 15 && remaining > 0;
+  const isLowSession = remaining <= 15 && remaining > 0 && !sessionLimitReached;
 
   return (
     <>
@@ -280,13 +364,13 @@ export const ProjectAssistant: React.FC = () => {
         <div className="relative p-8 md:p-14">
           <div className="mb-10 text-center">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-yellow-400/20 bg-yellow-400/10 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-yellow-400">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-yellow-400" />
-              {ASSISTANT_NAME} · проектный помощник
+              <span className="text-base">🌱</span>
+              {ASSISTANT_NAME} · помощник по проекту
             </div>
-            <h2 className="mb-3 text-3xl font-bold md:text-4xl">От идеи до питча</h2>
+            <h2 className="mb-3 text-3xl font-bold md:text-4xl">Придумайте. Спланируйте. Запустите.</h2>
             <p className="mx-auto max-w-2xl text-sm text-gray-400">
-              {ASSISTANT_NAME} помогает с названием, задачами, командой, таймлайном и конкурсами.
-              Привяжите свой проект — и советы будут точнее.
+              {ASSISTANT_NAME} помогает оформить идею, собрать команду и найти конкурсы.
+              Привяжите свой проект — советы станут точнее.
             </p>
           </div>
 
@@ -308,44 +392,36 @@ export const ProjectAssistant: React.FC = () => {
                       onChange={(e) => handleSelectProject(e.target.value)}
                       className="w-full rounded-xl border border-white/10 bg-[#0b2234] px-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-yellow-400/50 disabled:opacity-50"
                     >
-                      <option value="">— Новая идея (без привязки) —</option>
+                      <option value="">— Новая идея —</option>
                       {myProjects.map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.title}
                         </option>
                       ))}
                     </select>
-                    {loadingProjects && (
-                      <p className="mt-1 text-[10px] text-gray-500">Загрузка ваших проектов...</p>
-                    )}
-                    {!loadingProjects && myProjects.length === 0 && (
-                      <p className="mt-1 text-[10px] text-gray-500">
-                        Нет созданных проектов — опишите идею вручную или создайте проект в профиле.
-                      </p>
-                    )}
                     {brief.linkedProjectId && linkedDetail && (
                       <p className="mt-2 rounded-lg bg-yellow-400/10 px-3 py-2 text-[11px] text-yellow-300">
-                        🔗 Привязан: {linkedDetail.title}
+                        🔗 {linkedDetail.title}
                       </p>
                     )}
                   </div>
                 ) : (
                   <p className="mb-4 rounded-xl border border-white/5 bg-[#0b2234]/60 px-4 py-3 text-xs text-gray-500">
-                    Войдите в аккаунт, чтобы привязать существующий проект.
+                    Войдите, чтобы привязать проект из профиля.
                   </p>
                 )}
 
                 <input
                   value={brief.title}
                   onChange={(e) => setBrief((b) => ({ ...b, title: e.target.value }))}
-                  placeholder="Рабочее название..."
+                  placeholder="Название..."
                   className="mb-3 w-full rounded-xl border border-white/10 bg-[#0b2234] px-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-yellow-400/50"
                 />
                 <textarea
                   value={brief.description}
                   onChange={(e) => setBrief((b) => ({ ...b, description: e.target.value }))}
-                  placeholder="Кратко: какую проблему решаете?"
-                  rows={4}
+                  placeholder="О чём проект?"
+                  rows={3}
                   className="mb-4 w-full resize-none rounded-xl border border-white/10 bg-[#0b2234] px-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-yellow-400/50"
                 />
                 <div className="mb-4 flex flex-wrap gap-2">
@@ -372,75 +448,46 @@ export const ProjectAssistant: React.FC = () => {
                     placeholder="React, Python..."
                     className="flex-grow rounded-xl border border-white/10 bg-[#0b2234] px-3 py-2 text-xs text-white outline-none"
                   />
-                  <button
-                    type="button"
-                    onClick={addTech}
-                    className="rounded-xl bg-white/10 px-3 text-xs font-bold hover:bg-white/20"
-                  >
+                  <button type="button" onClick={addTech} className="rounded-xl bg-white/10 px-3 text-xs font-bold hover:bg-white/20">
                     +
                   </button>
                 </div>
-                {brief.technologies.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {brief.technologies.map((t) => (
-                      <span
-                        key={t}
-                        className="rounded-lg bg-sky-500/10 px-2 py-1 text-[10px] font-bold text-sky-300"
-                      >
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
 
               <div className="rounded-[28px] border border-white/10 bg-[#122e41]/60 p-6 backdrop-blur-md">
                 <h3 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white/70">
-                  <span className="text-base">📅</span> Таймлайн проекта
+                  <span>📅</span> Таймлайн
                 </h3>
                 {timelinePreview.length > 0 ? (
-                  <div className="relative ml-3 space-y-4 border-l-2 border-yellow-400/30 pl-6">
+                  <div className="relative ml-3 max-h-48 space-y-3 overflow-y-auto border-l-2 border-yellow-400/30 pl-6 custom-scrollbar">
                     {timelinePreview.map((item, i) => (
-                      <div
-                        key={i}
-                        className="assistant-timeline-item relative animate-in fade-in slide-in-from-left-2 duration-500"
-                        style={{ animationDelay: `${i * 80}ms` }}
-                      >
+                      <div key={i} className="relative">
                         <div className="absolute -left-[29px] top-1 h-3 w-3 rounded-full border-2 border-[#122e41] bg-yellow-400" />
                         <span className="text-[10px] font-black uppercase tracking-widest text-yellow-400/80">
-                          Нед. {item.week}
+                          Неделя {item.week}
                         </span>
-                        <p className="text-sm font-medium text-white/90">{item.title}</p>
+                        <p className="text-sm text-white/90">{item.title}</p>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-500">
-                    Нажмите «Таймлайн» в быстрых вопросах — здесь появятся этапы.
-                  </p>
+                  <p className="text-xs text-gray-500">Спросите про таймлайн — этапы появятся здесь.</p>
                 )}
               </div>
 
               <div className="rounded-2xl border border-white/5 bg-[#0b2234]/60 p-4">
                 <div className="mb-2 flex justify-between text-[10px] font-black uppercase tracking-widest text-gray-500">
                   <span>Сессия</span>
-                  <span className={isLowSession ? 'text-yellow-400' : ''}>
+                  <span className={isLowSession || sessionLimitReached ? 'text-yellow-400' : ''}>
                     {sessionCount}/{MAX_SESSION_MESSAGES}
                   </span>
                 </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      isLowSession ? 'bg-orange-400' : 'bg-yellow-400'
-                    }`}
+                    className={`h-full rounded-full transition-all ${isLowSession ? 'bg-orange-400' : 'bg-yellow-400'}`}
                     style={{ width: `${sessionProgress}%` }}
                   />
                 </div>
-                {isLowSession && (
-                  <p className="mt-2 text-[10px] text-orange-300">
-                    Осталось {remaining} сообщ. — скоро понадобится новая сессия
-                  </p>
-                )}
                 <button
                   type="button"
                   onClick={resetSession}
@@ -457,7 +504,7 @@ export const ProjectAssistant: React.FC = () => {
                   <button
                     key={q.id}
                     type="button"
-                    disabled={loading || sessionCount >= MAX_SESSION_MESSAGES}
+                    disabled={loading || sessionLimitReached || !!viewArchiveId}
                     onClick={() => sendMessage(q.prompt)}
                     className="group flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#122e41]/80 px-3 py-2 text-[11px] font-bold text-gray-300 transition-all hover:border-yellow-400/30 hover:bg-yellow-400/10 hover:text-yellow-300 disabled:opacity-40"
                   >
@@ -467,27 +514,64 @@ export const ProjectAssistant: React.FC = () => {
                 ))}
               </div>
 
-              <div className="flex min-h-[420px] flex-grow flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
-                <div ref={scrollRef} className="custom-scrollbar flex-grow space-y-4 overflow-y-auto p-5">
-                  {messages.map((m, i) => (
-                    <div
-                      key={i}
-                      className={`flex animate-in fade-in slide-in-from-bottom-2 duration-300 ${
-                        m.role === 'user' ? 'justify-end' : 'justify-start'
+              {archives.length > 0 && (
+                <div className="mb-3 flex gap-2 overflow-x-auto scrollbar-hide">
+                  <button
+                    type="button"
+                    onClick={() => setViewArchiveId(null)}
+                    className={`shrink-0 rounded-lg px-2.5 py-1 text-[10px] font-bold ${
+                      !viewArchiveId ? 'bg-yellow-400/20 text-yellow-300' : 'bg-white/5 text-gray-500'
+                    }`}
+                  >
+                    Текущий чат
+                  </button>
+                  {archives.map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setViewArchiveId(a.id)}
+                      className={`max-w-[140px] shrink-0 truncate rounded-lg px-2.5 py-1 text-[10px] font-bold ${
+                        viewArchiveId === a.id ? 'bg-yellow-400/20 text-yellow-300' : 'bg-white/5 text-gray-500'
                       }`}
                     >
+                      {a.title}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex h-[480px] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
+                <div ref={scrollRef} className="custom-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+                  {displayedMessages.map((m, i) => (
+                    <div
+                      key={i}
+                      className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      {m.role === 'ai' && <span className="mt-1 shrink-0 text-sm">🌱</span>}
                       <div
-                        className={`max-w-[92%] whitespace-pre-wrap rounded-2xl p-4 text-sm leading-relaxed shadow-md ${
+                        className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                           m.role === 'user'
                             ? 'bg-yellow-500 font-medium text-black'
-                            : m.text.startsWith('⚠️') || m.text.startsWith('🔔')
+                            : m.text.startsWith('⚠️') || m.text.startsWith('🔔') || m.text.startsWith('📌')
                               ? 'border border-orange-400/30 bg-orange-950/40 text-orange-100'
-                              : 'bg-[#1a3a4d] text-white'
+                              : 'bg-[#1a3a4d] text-white/95'
                         }`}
                       >
-                        {m.role === 'ai' && !m.text.startsWith('⚠️') && !m.text.startsWith('🔔')
+                        {m.role === 'ai' &&
+                        !m.text.startsWith('⚠️') &&
+                        !m.text.startsWith('🔔') &&
+                        !m.text.startsWith('📌')
                           ? parseAiLinks(m.text, { onLinkClick: handleLinkClick })
                           : m.text}
+                        {m.proposals?.map((p, pi) => (
+                          <ProshaProposalCard
+                            key={pi}
+                            proposal={p}
+                            saving={savingProposal}
+                            onAccept={() => handleAcceptProposal(i, p)}
+                            onReject={() => handleRejectProposal(i)}
+                          />
+                        ))}
                       </div>
                     </div>
                   ))}
@@ -495,37 +579,44 @@ export const ProjectAssistant: React.FC = () => {
                     <div className="flex items-center justify-center gap-2 py-2 text-xs text-white/40">
                       <span className="assistant-typing-dot" />
                       <span className="assistant-typing-dot animation-delay-200" />
-                      <span className="assistant-typing-dot animation-delay-400" />
                       <span>{ASSISTANT_NAME} думает...</span>
                     </div>
                   )}
                 </div>
 
-                <div className="border-t border-white/5 p-4">
-                  <div className="flex gap-2">
-                    <input
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage(input)}
-                      maxLength={600}
-                      disabled={loading || sessionCount >= MAX_SESSION_MESSAGES}
-                      placeholder={`Спросите ${ASSISTANT_NAME} про задачи, команду, конкурсы...`}
-                      className="flex-grow rounded-xl border border-white/10 bg-[#122e41] px-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-yellow-400/50 disabled:opacity-50"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => sendMessage(input)}
-                      disabled={loading || !input.trim() || sessionCount >= MAX_SESSION_MESSAGES}
-                      className="rounded-xl bg-yellow-500 p-3 text-black transition-colors hover:bg-yellow-400 disabled:opacity-40"
-                    >
-                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
-                      </svg>
-                    </button>
-                  </div>
-                  <p className="mt-2 text-center text-[10px] text-gray-600">
-                    {ASSISTANT_NAME} советует, не делает за вас · до {MAX_SESSION_MESSAGES} сообщений за сессию
-                  </p>
+                <div className="flex-none border-t border-white/5 p-4">
+                  {viewArchiveId ? (
+                    <p className="text-center text-xs text-gray-500">
+                      Архив — только просмотр.{' '}
+                      <button type="button" className="text-yellow-400 underline" onClick={() => setViewArchiveId(null)}>
+                        Вернуться
+                      </button>
+                    </p>
+                  ) : sessionLimitReached ? (
+                    <p className="text-center text-xs text-orange-300">
+                      Лимит исчерпан — чат сохранён. Нажмите «Новая сессия», чтобы продолжить.
+                    </p>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage(input)}
+                        maxLength={600}
+                        disabled={loading}
+                        placeholder={`Спросите ${ASSISTANT_NAME}...`}
+                        className="flex-grow rounded-xl border border-white/10 bg-[#122e41] px-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-yellow-400/50 disabled:opacity-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => sendMessage(input)}
+                        disabled={loading || !input.trim()}
+                        className="rounded-xl bg-yellow-500 p-3 text-black transition-colors hover:bg-yellow-400 disabled:opacity-40"
+                      >
+                        →
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -533,7 +624,7 @@ export const ProjectAssistant: React.FC = () => {
         </div>
       </section>
 
-      {selectedItem && <InfoModal data={selectedItem} onClose={() => setSelectedItem(null)} />}
+      {selectedItem && <InfoModal data={selectedItem as React.ComponentProps<typeof InfoModal>['data']} onClose={() => setSelectedItem(null)} />}
     </>
   );
 };

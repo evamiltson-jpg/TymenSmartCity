@@ -1,114 +1,122 @@
 import React from 'react';
 
 interface InfoModalProps {
-    data: {
-        title: string;
-        desc: string;
-        category: string;
-        image: string;
-        // Поля для универсальности
-        status?: string;       // Только для проектов (например, "В работе")
-        buttonText?: string;   // Текст на кнопке
-        isService?: boolean;   // Флаг: true = сервис (синий), false = проект (желтый)
-        link?: string;         // Ссылка для перехода (на будущее)
-    };
-    onClose: () => void;
+  data: {
+    title: string;
+    desc: string;
+    category: string;
+    image: string;
+    status?: string;
+    buttonText?: string;
+    isService?: boolean;
+    url?: string;
+    link?: string;
+  };
+  onClose: () => void;
+  onNavigate?: (page: string) => void;
 }
 
-export const InfoModal: React.FC<InfoModalProps> = ({ data, onClose }) => {
-    // Если данных нет, ничего не рендерим
-    if (!data) return null;
+export const InfoModal: React.FC<InfoModalProps> = ({ data, onClose, onNavigate }) => {
+  if (!data) return null;
 
-    const handleButtonClick = () => {
-        if (data.isService) {
-            // ЛОГИКА ДЛЯ СЕРВИСА:
-            // В реальном проекте здесь будет: window.open(data.link, '_blank');
-            alert(`Переходим на портал госуслуг или сайт сервиса: "${data.title}"...`);
-        } else {
-            // ЛОГИКА ДЛЯ ПРОЕКТА:
-            alert(`Спасибо! Ваша заявка на участие в проекте "${data.title}" отправлена куратору.`);
-        }
-    };
+  const externalUrl = data.url || data.link;
 
-    return (
-        // Затемненный фон (Backdrop)
-        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
-            
-            {/* Контейнер модального окна */}
-            <div 
-                className="bg-[#122e41] border border-white/10 w-full max-w-2xl rounded-[40px] overflow-hidden shadow-2xl relative flex flex-col max-h-[90vh]"
-                onClick={(e) => e.stopPropagation()} // Чтобы клик внутри не закрывал окно
+  const handleButtonClick = () => {
+    if (externalUrl && /^https?:\/\//i.test(externalUrl)) {
+      window.open(externalUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (data.isService && onNavigate) {
+      onClose();
+      onNavigate('services');
+      return;
+    }
+    if (!data.isService && onNavigate) {
+      onClose();
+      onNavigate('projects');
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[300] flex animate-in fade-in items-center justify-center bg-black/80 p-4 backdrop-blur-md duration-300"
+      onClick={onClose}
+    >
+      <div
+        className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-[40px] border border-white/10 bg-[#122e41] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-6 top-6 z-10 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-black/40 text-2xl font-light text-white transition-all hover:bg-yellow-400 hover:text-black"
+        >
+          &times;
+        </button>
+
+        <div className="relative h-64 shrink-0 overflow-hidden sm:h-72">
+          <img
+            src={data.image}
+            className="h-full w-full object-cover"
+            alt={data.title}
+            onError={(e) => {
+              e.currentTarget.src =
+                'https://images.unsplash.com/photo-1449824913935-59a10b8d2000?q=80&w=800';
+            }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#122e41] via-[#122e41]/20 to-transparent" />
+          <div className="absolute bottom-8 left-8 pr-8 sm:left-10">
+            <span
+              className={`mb-4 inline-block rounded-lg px-3 py-1 text-[10px] font-black uppercase tracking-widest shadow-lg ${
+                data.isService ? 'bg-sky-400 text-black' : 'bg-yellow-400 text-black'
+              }`}
             >
-                {/* Кнопка закрытия (Крестик) */}
-                <button 
-                    onClick={onClose} 
-                    className="absolute top-6 right-6 z-10 bg-black/40 hover:bg-yellow-400 hover:text-black w-10 h-10 rounded-full text-white text-2xl transition-all flex items-center justify-center font-light cursor-pointer"
-                >
-                    &times;
-                </button>
-                
-                {/* Верхняя часть с изображением */}
-                <div className="h-64 sm:h-72 overflow-hidden relative shrink-0">
-                    <img 
-                        src={data.image} 
-                        className="w-full h-full object-cover" 
-                        alt={data.title}
-                        onError={(e) => { e.currentTarget.src = "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?q=80&w=800"; }} 
-                    />
-                    {/* Градиент для читаемости текста */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#122e41] via-[#122e41]/20 to-transparent"></div>
-                    
-                    {/* Заголовок и категория */}
-                    <div className="absolute bottom-8 left-8 sm:left-10 pr-8">
-                        <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest mb-4 inline-block shadow-lg ${
-                            data.isService ? 'bg-sky-400 text-black' : 'bg-yellow-400 text-black'
-                        }`}>
-                            {data.category}
-                        </span>
-                        <h2 className="text-3xl sm:text-5xl font-bold text-white tracking-tighter leading-none shadow-black drop-shadow-md">
-                            {data.title}
-                        </h2>
-                    </div>
-                </div>
-
-                {/* Основной контент */}
-                <div className="p-8 sm:p-10 flex flex-col overflow-y-auto custom-scrollbar">
-                    <p className="text-gray-300 text-lg leading-relaxed mb-10 font-medium whitespace-pre-wrap">
-                        {data.desc}
-                    </p>
-
-                    {/* Футер карточки с информацией и кнопкой */}
-                    <div className="flex flex-col sm:flex-row justify-between items-center border-t border-white/5 pt-8 gap-6 mt-auto">
-                        
-                        {/* Левая часть футера: Статус или Тип */}
-                        {!data.isService && data.status && (
-                            <div className="text-center sm:text-left">
-                                <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Статус проекта</p>
-                                <p className="text-white font-bold text-lg">{data.status}</p>
-                            </div>
-                        )}
-                        
-                        {data.isService && (
-                            <div className="text-center sm:text-left">
-                                <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Тип доступа</p>
-                                <p className="text-sky-400 font-bold text-lg">Госуслуги / Муниципальный</p>
-                            </div>
-                        )}
-
-                        {/* Правая часть: Главная кнопка действия */}
-                        <button 
-                            onClick={handleButtonClick}
-                            className={`px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-[0.2em] transition-all shadow-xl active:scale-95 w-full sm:w-auto ${
-                                data.isService 
-                                    ? 'bg-sky-500 hover:bg-sky-400 text-white' 
-                                    : 'bg-yellow-400 hover:bg-yellow-500 text-black'
-                            }`}
-                        >
-                            {data.buttonText || (data.isService ? 'Перейти к сервису' : 'Подать заявку')}
-                        </button>
-                    </div>
-                </div>
-            </div>
+              {data.category}
+            </span>
+            <h2 className="text-3xl font-bold leading-none tracking-tighter text-white drop-shadow-md sm:text-5xl">
+              {data.title}
+            </h2>
+          </div>
         </div>
-    );
+
+        <div className="custom-scrollbar flex flex-col overflow-y-auto p-8 sm:p-10">
+          <p className="mb-10 whitespace-pre-wrap text-lg font-medium leading-relaxed text-gray-300">
+            {data.desc}
+          </p>
+
+          <div className="mt-auto flex flex-col items-center justify-between gap-6 border-t border-white/5 pt-8 sm:flex-row">
+            {!data.isService && data.status && (
+              <div className="text-center sm:text-left">
+                <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                  Статус проекта
+                </p>
+                <p className="text-lg font-bold text-white">{data.status}</p>
+              </div>
+            )}
+
+            {data.isService && (
+              <div className="text-center sm:text-left">
+                <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-gray-500">
+                  Тип доступа
+                </p>
+                <p className="text-lg font-bold text-sky-400">Госуслуги / Муниципальный</p>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleButtonClick}
+              className={`w-full rounded-2xl px-10 py-4 text-xs font-black uppercase tracking-[0.2em] shadow-xl transition-all active:scale-95 sm:w-auto ${
+                data.isService
+                  ? 'bg-sky-500 text-white hover:bg-sky-400'
+                  : 'bg-yellow-400 text-black hover:bg-yellow-500'
+              }`}
+            >
+              {data.buttonText || (data.isService ? 'Перейти к сервису' : 'Подать заявку')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };

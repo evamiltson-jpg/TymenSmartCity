@@ -1,3 +1,5 @@
+import { SERVICES_LIST } from '../constants';
+import { loadSiteEvents } from '../utils/resolveAiCard';
 import { supabase } from './supabase';
 import type { MyProjectDetail } from './projectService';
 
@@ -37,21 +39,51 @@ export async function buildCityContext(): Promise<string> {
     supabase.from('services').select('id, title, category, description').limit(50),
   ]);
 
-  const servicesList =
-    servicesRes.data
-      ?.map((s) => `ID:${s.id} | НАЗВАНИЕ: "${s.title}" | СУТЬ: ${s.description}`)
-      .join('\n') ?? '';
+  const dbServices = servicesRes.data ?? [];
+  const servicesSource = dbServices.length
+    ? dbServices
+    : SERVICES_LIST.map((s) => ({
+        id: s.id,
+        title: s.title,
+        category: s.category,
+        description: s.desc,
+      }));
+
+  const servicesList = servicesSource
+    .map((s) => `ID:${s.id} | "${s.title}" | ${s.category} | ${s.description}`)
+    .join('\n');
 
   const projectsList =
     projectsRes.data
-      ?.map((p) => `ID:${p.id} | НАЗВАНИЕ: "${p.title}" | СУТЬ: ${p.description}`)
+      ?.map((p) => `ID:${p.id} | "${p.title}" | ${p.description}`)
       .join('\n') ?? '';
 
-  return `=== ГОРОДСКИЕ СЕРВИСЫ ===
+  const sections = `services — Цифровые сервисы (ЖКХ, ТТС, врач, школа)
+projects — ИТ-проекты для участия
+campus — Студентам
+profile — Личный кабинет`;
+
+  return `=== РАЗДЕЛЫ САЙТА (навигация: [[раздел:ID|Название]]) ===
+${sections}
+
+=== ЦИФРОВЫЕ СЕРВИСЫ ([[сервис:ID|Название]]) ===
 ${servicesList}
 
-=== ИТ-ПРОЕКТЫ ===
+=== ИТ-ПРОЕКТЫ ([[проект:ID|Название]]) ===
 ${projectsList}`;
+}
+
+export async function buildEventsContext(): Promise<string> {
+  const events = await loadSiteEvents();
+  const relevant = events.filter((e) =>
+    /стартап|чемпионат|хакатон|акселератор|конференц|конкурс|форум/i.test(
+      `${e.tag} ${e.title}`,
+    ),
+  );
+  return relevant
+    .slice(0, 20)
+    .map((e) => `ID:${e.id} | "${e.title}" | ${e.tag} | ССЫЛКА: ${e.link}`)
+    .join('\n');
 }
 
 export interface ProjectAiContext {
@@ -81,6 +113,7 @@ export async function sendAiMessage(params: {
   message: string;
   history?: AiHistoryMessage[];
   cityContext?: string;
+  eventsContext?: string;
   projectContext?: ProjectAiContext;
 }): Promise<string> {
   const { data, error } = await supabase.functions.invoke('ai-chat', {
@@ -89,6 +122,7 @@ export async function sendAiMessage(params: {
       message: params.message,
       history: params.history?.slice(-MAX_HISTORY_FOR_API),
       cityContext: params.cityContext,
+      eventsContext: params.eventsContext,
       projectContext: params.projectContext,
     },
   });
@@ -182,14 +216,14 @@ export const PROJECT_QUICK_PROMPTS = [
   { id: 'features', label: 'Функции', icon: '⚙️', prompt: 'Перечисли ключевые функции MVP (5–7 пунктов) для моего проекта.' },
   { id: 'tasks', label: 'Задачи', icon: '✅', prompt: 'Разбей проект на конкретные задачи для команды на ближайший месяц.' },
   { id: 'team', label: 'Команда', icon: '👥', prompt: 'Какие специалисты нужны для реализации? Укажи роли и навыки.' },
-  { id: 'timeline', label: 'Таймлайн', icon: '📅', prompt: 'Составь таймлайн проекта на 8–12 недель с ключевыми вехами.' },
-  { id: 'events', label: 'Конкурсы', icon: '🏆', prompt: 'Какие конференции, хакатоны или конкурсы подходят для этого проекта в России?' },
+  { id: 'timeline', label: 'Таймлайн', icon: '📅', prompt: 'Составь реалистичный таймлайн на 8 недель. Формат строго: «Неделя N — конкретная задача». Учти стадию проекта и размер команды.' },
+  { id: 'events', label: 'Конкурсы', icon: '🏆', prompt: 'Подбери подходящие конкурсы и мероприятия из базы сайта. Дай ссылки [[событие:ID|Название]] на реальные события.' },
   { id: 'chances', label: 'Шансы', icon: '📊', prompt: 'Оцени шансы на победу на студенческих конкурсах и дай 3 рекомендации по доработке.' },
 ] as const;
 
 export const CITY_QUICK_PROMPTS = [
-  'Как записаться к врачу?',
-  'Найти ИТ-проект для участия',
-  'Городские сервисы для жителей',
-  'Сообщить об ошибке на сайте',
+  'Записаться к врачу',
+  'Пополнить ТТС',
+  'Найти ИТ-проект',
+  'Раздел сервисов',
 ] as const;

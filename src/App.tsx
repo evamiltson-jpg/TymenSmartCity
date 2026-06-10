@@ -221,9 +221,10 @@ const AppContent: React.FC = () => {
 
       {isChatOpen && (
         <Suspense fallback={null}>
-          <AIChat 
-            isOpen={isChatOpen} 
-            onClose={() => setIsChatOpen(false)} 
+          <AIChat
+            isOpen={isChatOpen}
+            onClose={() => setIsChatOpen(false)}
+            onNavigate={navigate}
           />
         </Suspense>
       )}

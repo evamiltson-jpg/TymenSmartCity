@@ -1,9 +1,12 @@
 import React from 'react';
 
-const LINK_PATTERN = /(\[\[(?:проект|сервис|команда):[\w-]+\|.+?\]\])/g;
+const LINK_PATTERN =
+  /(\[\[(?:проект|сервис|команда|раздел|событие):[\w-]+\|.+?\]\])/g;
+
+export type AiLinkType = 'проект' | 'сервис' | 'команда' | 'раздел' | 'событие';
 
 export interface AiLinkClickPayload {
-  type: 'проект' | 'сервис' | 'команда';
+  type: AiLinkType;
   id: string;
   label: string;
 }
@@ -11,6 +14,30 @@ export interface AiLinkClickPayload {
 interface ParseAiLinksOptions {
   onLinkClick: (payload: AiLinkClickPayload) => void;
 }
+
+const linkStyle = (type: AiLinkType) => {
+  if (type === 'проект') {
+    return 'bg-yellow-400/10 text-yellow-400 border-yellow-400/30 hover:bg-yellow-400 hover:text-black';
+  }
+  if (type === 'раздел') {
+    return 'bg-emerald-400/10 text-emerald-300 border-emerald-400/30 hover:bg-emerald-400 hover:text-black';
+  }
+  if (type === 'событие') {
+    return 'bg-violet-400/10 text-violet-300 border-violet-400/30 hover:bg-violet-500 hover:text-white';
+  }
+  if (type === 'команда') {
+    return 'bg-orange-400/10 text-orange-300 border-orange-400/30 hover:bg-orange-400 hover:text-black';
+  }
+  return 'bg-sky-400/10 text-sky-300 border-sky-400/30 hover:bg-sky-500 hover:text-white';
+};
+
+const linkIcon = (type: AiLinkType) => {
+  if (type === 'проект') return '🚀';
+  if (type === 'раздел') return '🧭';
+  if (type === 'событие') return '🏆';
+  if (type === 'команда') return '👥';
+  return '🏛';
+};
 
 export function parseAiLinks(text: string, { onLinkClick }: ParseAiLinksOptions): React.ReactNode[] {
   const cleanText = text.replace(/\*\*/g, '');
@@ -27,26 +54,21 @@ export function parseAiLinks(text: string, { onLinkClick }: ParseAiLinksOptions)
 
     const meta = content.slice(0, pipeIdx);
     const label = content.slice(pipeIdx + 1);
-    const metaMatch = meta.match(/^(проект|сервис|команда):([\w-]+)$/);
+    const metaMatch = meta.match(/^(проект|сервис|команда|раздел|событие):([\w-]+)$/);
     if (!metaMatch) return <React.Fragment key={i}>{part}</React.Fragment>;
 
-    const type = metaMatch[1] as AiLinkClickPayload['type'];
+    const type = metaMatch[1] as AiLinkType;
     const id = metaMatch[2];
-    const isProject = type === 'проект';
 
     return (
       <button
         key={i}
         type="button"
         onClick={() => onLinkClick({ type, id, label })}
-        className={`mx-1 px-3 py-1.5 rounded-lg text-[13px] font-bold transition-all inline-flex items-center gap-2 shadow-sm border whitespace-nowrap my-1 ${
-          isProject
-            ? 'bg-yellow-400/10 text-yellow-400 border-yellow-400/30 hover:bg-yellow-400 hover:text-black'
-            : 'bg-sky-400/10 text-sky-300 border-sky-400/30 hover:bg-sky-500 hover:text-white'
-        }`}
+        className={`mx-1 my-1 inline-flex items-center gap-2 whitespace-nowrap rounded-lg border px-3 py-1.5 text-[13px] font-bold shadow-sm transition-all ${linkStyle(type)}`}
       >
-        {isProject ? '🚀' : type === 'команда' ? '👥' : '🏛'} {label}
-        <span className="opacity-50 text-[10px]">↗</span>
+        {linkIcon(type)} {label}
+        <span className="text-[10px] opacity-50">↗</span>
       </button>
     );
   });
