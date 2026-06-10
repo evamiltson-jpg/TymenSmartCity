@@ -275,14 +275,22 @@ const enrichProjects = (projects: ProjectData[]) => enrichProjectImages(projects
 export const getTopRatedProjectsFallback = (limit = HOME_TOP_PROJECTS_LIMIT): ProjectData[] =>
   sortByRating(getSiteProjectsFallback()).slice(0, limit);
 
-const schedulePromoteDueProjects = () => {
-  if (!isSupabaseConfigured) return;
+const promoteDueProjects = async (options?: { force?: boolean }) => {
+  if (!isSupabaseConfigured) return false;
+
   const now = Date.now();
-  if (now - lastPromoteAt < PROMOTE_INTERVAL_MS) return;
+  if (!options?.force && now - lastPromoteAt < PROMOTE_INTERVAL_MS) return false;
+
   lastPromoteAt = now;
-  void supabase.rpc('promote_due_projects').catch((error) => {
+  try {
+    const { error } = await supabase.rpc('promote_due_projects');
+    if (error) throw error;
+    invalidateProjectsCache();
+    return true;
+  } catch (error) {
     console.warn('promote_due_projects:', error);
-  });
+    return false;
+  }
 };
 
 export type ProjectSortBy = 'rating' | 'votes' | 'title' | 'newest';
@@ -456,7 +464,7 @@ const rowMatchesFilters = (row: Record<string, unknown>, filters: ProjectSearchF
 };
 
 const queryPublishedProjectRows = async (columns: string, limit = PUBLIC_PROJECT_LIMIT) => {
-  schedulePromoteDueProjects();
+  void promoteDueProjects();
 
   const { data, error } = await runReadQuery(() =>
     supabase
@@ -570,9 +578,17 @@ export const getProjectModerationInfo = (row: {
   }
 
   const publishAt = row.published_at ? new Date(row.published_at) : null;
-  const minutesLeft = publishAt
-    ? Math.max(1, Math.ceil((publishAt.getTime() - Date.now()) / 60000))
-    : 60;
+  const msLeft = publishAt ? publishAt.getTime() - Date.now() : 60 * 60 * 1000;
+
+  if (msLeft <= 0) {
+    return {
+      label: status,
+      tone,
+      hint: 'Публикуем на сайте — статус обновится автоматически',
+    };
+  }
+
+  const minutesLeft = Math.ceil(msLeft / 60000);
 
   return {
     label: status,
@@ -582,6 +598,16 @@ export const getProjectModerationInfo = (row: {
         ? `Появится на сайте примерно через ${Math.ceil(minutesLeft / 60)} ч`
         : `Появится на сайте примерно через ${minutesLeft} мин`,
   };
+};
+
+export const isProjectPendingPublication = (project: SubmittedProject) =>
+  !project.isOnSite &&
+  project.moderation_status !== REVIEW_STATUS.REJECTED &&
+  project.moderation_status !== REVIEW_STATUS.DELETED;
+
+export const isProjectPublishOverdue = (project: SubmittedProject) => {
+  if (!isProjectPendingPublication(project) || !project.published_at) return false;
+  return new Date(project.published_at).getTime() <= Date.now();
 };
 
 export const formatProjectError = (error: unknown): string => {
@@ -739,6 +765,8 @@ export const fetchMySubmittedProjects = async (userId: string): Promise<Submitte
   if (!isSupabaseConfigured) {
     throw new Error('Supabase не настроен. Проверьте VITE_SUPABASE_URL и VITE_SUPABASE_ANON_KEY.');
   }
+
+  await promoteDueProjects({ force: true });
 
   const cached = readSubmittedProjectsCache(userId);
 

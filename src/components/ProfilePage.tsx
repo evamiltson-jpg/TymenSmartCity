@@ -25,6 +25,8 @@ import {
   fetchMySubmittedProjects,
   fetchMyTeamDetails,
   formatProjectError,
+  isProjectPendingPublication,
+  isProjectPublishOverdue,
   readSubmittedProjectsCache,
   updateProjectTeam,
   type SubmittedProject,
@@ -245,6 +247,21 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     }
     void loadUserData();
   }, [user, authLoading]);
+
+  useEffect(() => {
+    if (!user || authLoading) return;
+
+    const hasPending = submittedProjects.some(isProjectPendingPublication);
+    if (!hasPending) return;
+
+    const hasOverdue = submittedProjects.some(isProjectPublishOverdue);
+    const intervalMs = hasOverdue ? 15_000 : 45_000;
+    const timerId = window.setInterval(() => {
+      void loadSubmittedProjects({ background: true });
+    }, intervalMs);
+
+    return () => window.clearInterval(timerId);
+  }, [user, authLoading, submittedProjects]);
 
   const handleSaveProfile = async () => {
     setSaveMessage('');
