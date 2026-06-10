@@ -395,9 +395,9 @@ export const ProjectAssistant: React.FC = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-start">
-            <div className="space-y-6 lg:col-span-4">
-              <div className="rounded-[28px] border border-white/10 bg-[#122e41]/80 p-6 backdrop-blur-md">
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-stretch">
+            <div className="flex flex-col gap-6 lg:col-span-4">
+              <div className="shrink-0 rounded-[28px] border border-white/10 bg-[#122e41]/80 p-6 backdrop-blur-md">
                 <h3 className="mb-4 text-xs font-black uppercase tracking-widest text-yellow-400">
                   Ваш проект
                 </h3>
@@ -475,12 +475,12 @@ export const ProjectAssistant: React.FC = () => {
                 </div>
               </div>
 
-              <div className="rounded-[28px] border border-white/10 bg-[#122e41]/60 p-6 backdrop-blur-md">
-                <h3 className="mb-4 text-xs font-black uppercase tracking-widest text-white/70">
+              <div className="flex min-h-0 flex-1 flex-col rounded-[28px] border border-white/10 bg-[#122e41]/60 p-6 backdrop-blur-md">
+                <h3 className="mb-4 shrink-0 text-xs font-black uppercase tracking-widest text-white/70">
                   Таймлайн
                 </h3>
                 {timelinePreview.length > 0 ? (
-                  <div className="relative ml-3 max-h-48 space-y-3 overflow-y-auto border-l-2 border-yellow-400/30 pl-6 custom-scrollbar">
+                  <div className="relative ml-3 min-h-0 flex-1 space-y-3 overflow-y-auto border-l-2 border-yellow-400/30 pl-6 custom-scrollbar">
                     {timelinePreview.map((item, i) => (
                       <div key={i} className="relative">
                         <div className="absolute -left-[29px] top-1 h-3 w-3 rounded-full border-2 border-[#122e41] bg-yellow-400" />
@@ -496,7 +496,7 @@ export const ProjectAssistant: React.FC = () => {
                 )}
               </div>
 
-              <div className="rounded-2xl border border-white/5 bg-[#0b2234]/60 p-4">
+              <div className="shrink-0 rounded-2xl border border-white/5 bg-[#0b2234]/60 p-4">
                 <div className="mb-2 flex justify-between text-[10px] font-black uppercase tracking-widest text-gray-500">
                   <span>Сессия</span>
                   <span className={isLowSession || sessionLimitReached ? 'text-yellow-400' : ''}>
@@ -519,62 +519,64 @@ export const ProjectAssistant: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-col lg:col-span-8">
-              <div className="mb-4 flex flex-wrap gap-2">
-                {PROJECT_QUICK_PROMPTS.map((q) => (
-                  <button
-                    key={q.id}
-                    type="button"
-                    disabled={loading || sessionLimitReached || !!viewArchiveId}
-                    onClick={() => sendMessage(q.userText, { apiMessage: q.apiPrompt })}
-                    className="rounded-xl border border-white/10 bg-[#122e41]/80 px-3 py-2 text-[11px] font-bold text-gray-300 transition-all hover:border-yellow-400/30 hover:bg-yellow-400/10 hover:text-yellow-300 disabled:opacity-40"
-                  >
-                    {q.label}
-                  </button>
-                ))}
-              </div>
+            <div className="flex min-h-[480px] flex-col lg:col-span-8 lg:min-h-0 lg:h-full">
+              <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
+                <div className="flex-none border-b border-white/5 px-4 py-3">
+                  <div className="flex flex-wrap gap-2">
+                    {PROJECT_QUICK_PROMPTS.map((q) => (
+                      <button
+                        key={q.id}
+                        type="button"
+                        disabled={loading || sessionLimitReached || !!viewArchiveId}
+                        onClick={() => sendMessage(q.userText, { apiMessage: q.apiPrompt })}
+                        className="rounded-xl border border-white/10 bg-[#122e41]/80 px-3 py-1.5 text-[11px] font-bold text-gray-300 transition-all hover:border-yellow-400/30 hover:bg-yellow-400/10 hover:text-yellow-300 disabled:opacity-40"
+                      >
+                        {q.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-              {archives.length > 0 && (
-                <div className="mb-3 flex gap-2 overflow-x-auto scrollbar-hide">
-                  <button
-                    type="button"
-                    onClick={() => setViewArchiveId(null)}
-                    className={`shrink-0 rounded-lg px-2.5 py-1 text-[10px] font-bold ${
-                      !viewArchiveId ? 'bg-yellow-400/20 text-yellow-300' : 'bg-white/5 text-gray-500'
-                    }`}
-                  >
-                    Текущий чат
-                  </button>
-                  {archives.map((a) => (
-                    <div
-                      key={a.id}
-                      className={`flex shrink-0 items-center overflow-hidden rounded-lg ${
-                        viewArchiveId === a.id ? 'bg-yellow-400/20' : 'bg-white/5'
+                {archives.length > 0 && (
+                  <div className="flex flex-none gap-2 overflow-x-auto border-b border-white/5 px-4 py-2 scrollbar-hide">
+                    <button
+                      type="button"
+                      onClick={() => setViewArchiveId(null)}
+                      className={`shrink-0 rounded-lg px-2.5 py-1 text-[10px] font-bold ${
+                        !viewArchiveId ? 'bg-yellow-400/20 text-yellow-300' : 'bg-white/5 text-gray-500'
                       }`}
                     >
-                      <button
-                        type="button"
-                        onClick={() => setViewArchiveId(a.id)}
-                        className={`max-w-[120px] truncate px-2.5 py-1 text-[10px] font-bold ${
-                          viewArchiveId === a.id ? 'text-yellow-300' : 'text-gray-500'
+                      Текущий чат
+                    </button>
+                    {archives.map((a) => (
+                      <div
+                        key={a.id}
+                        className={`flex shrink-0 items-center overflow-hidden rounded-lg ${
+                          viewArchiveId === a.id ? 'bg-yellow-400/20' : 'bg-white/5'
                         }`}
                       >
-                        {a.title}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => deleteArchiveChat(a.id)}
-                        title="Удалить из архива"
-                        className="px-1.5 py-1 text-[11px] text-gray-600 hover:text-red-400"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+                        <button
+                          type="button"
+                          onClick={() => setViewArchiveId(a.id)}
+                          className={`max-w-[120px] truncate px-2.5 py-1 text-[10px] font-bold ${
+                            viewArchiveId === a.id ? 'text-yellow-300' : 'text-gray-500'
+                          }`}
+                        >
+                          {a.title}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteArchiveChat(a.id)}
+                          title="Удалить из архива"
+                          className="px-1.5 py-1 text-[11px] text-gray-600 hover:text-red-400"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-              <div className="flex h-[min(560px,calc(100vh-14rem))] shrink-0 flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
                 <div ref={scrollRef} className="custom-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
                   {displayedMessages.map((m, i) => (
                     <div
