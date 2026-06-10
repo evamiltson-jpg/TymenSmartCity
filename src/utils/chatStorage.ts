@@ -71,3 +71,16 @@ export function archiveAndReset(
   saveChatState(storageKey, next);
   return next;
 }
+
+export function deleteArchive(
+  storageKey: string,
+  archiveId: string,
+  current: ActiveChatState,
+): ActiveChatState {
+  const next: ActiveChatState = {
+    ...current,
+    archives: current.archives.filter((a) => a.id !== archiveId),
+  };
+  saveChatState(storageKey, next);
+  return next;
+}

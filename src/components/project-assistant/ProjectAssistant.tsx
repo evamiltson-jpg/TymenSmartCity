@@ -24,10 +24,12 @@ import {
 } from '../../services/projectService';
 import {
   archiveAndReset,
+  deleteArchive,
   loadChatState,
   saveChatState,
   type StoredChatMessage,
 } from '../../utils/chatStorage';
+import { moderateUserMessage } from '../../utils/chatModeration';
 import {
   extractProposals,
   extractTimelineItems,
@@ -42,7 +44,7 @@ const CHAT_KEY = 'prosha_chat_v1';
 
 const WELCOME: StoredChatMessage = {
   role: 'ai',
-  text: `Здравствуйте! Я ${ASSISTANT_NAME} — консультант по студенческим проектам.\n\nРасскажите идею или привяжите проект из профиля — отвечу по вашему вопросу.`,
+  text: `Привет! Я ${ASSISTANT_NAME} — помогу с идеей, планом, командой и конкурсами.\n\nПривяжите проект из профиля или просто задайте вопрос.`,
 };
 
 const STAGE_OPTIONS: { value: ProjectBrief['stage']; label: string }[] = [
@@ -273,13 +275,30 @@ export const ProjectAssistant: React.FC = () => {
     );
   };
 
+  const deleteArchiveChat = (archiveId: string) => {
+    const next = deleteArchive(CHAT_KEY, archiveId, { messages, sessionCount, archives });
+    setArchives(next.archives);
+    if (viewArchiveId === archiveId) setViewArchiveId(null);
+  };
+
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || loading || viewArchiveId) return;
 
     if (sessionLimitReached) return;
 
+    const moderation = moderateUserMessage(trimmed, 'project');
     setInput('');
+
+    if (moderation.blocked) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'user', text: trimmed },
+        { role: 'ai', text: moderation.reply ?? 'Сообщение не принято.' },
+      ]);
+      return;
+    }
+
     const priorHistory = buildApiHistory();
     const nextCount = sessionCount + 1;
     setMessages((prev) => [...prev, { role: 'user', text: trimmed }]);
@@ -526,16 +545,30 @@ export const ProjectAssistant: React.FC = () => {
                     Текущий чат
                   </button>
                   {archives.map((a) => (
-                    <button
+                    <div
                       key={a.id}
-                      type="button"
-                      onClick={() => setViewArchiveId(a.id)}
-                      className={`max-w-[140px] shrink-0 truncate rounded-lg px-2.5 py-1 text-[10px] font-bold ${
-                        viewArchiveId === a.id ? 'bg-yellow-400/20 text-yellow-300' : 'bg-white/5 text-gray-500'
+                      className={`flex shrink-0 items-center overflow-hidden rounded-lg ${
+                        viewArchiveId === a.id ? 'bg-yellow-400/20' : 'bg-white/5'
                       }`}
                     >
-                      {a.title}
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewArchiveId(a.id)}
+                        className={`max-w-[120px] truncate px-2.5 py-1 text-[10px] font-bold ${
+                          viewArchiveId === a.id ? 'text-yellow-300' : 'text-gray-500'
+                        }`}
+                      >
+                        {a.title}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteArchiveChat(a.id)}
+                        title="Удалить из архива"
+                        className="px-1.5 py-1 text-[11px] text-gray-600 hover:text-red-400"
+                      >
+                        ×
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -582,12 +615,21 @@ export const ProjectAssistant: React.FC = () => {
 
                 <div className="flex-none border-t border-white/5 p-4">
                   {viewArchiveId ? (
-                    <p className="text-center text-xs text-gray-500">
-                      Архив — только просмотр.{' '}
-                      <button type="button" className="text-yellow-400 underline" onClick={() => setViewArchiveId(null)}>
-                        Вернуться
+                    <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+                      <span>
+                        Архив — только просмотр.{' '}
+                        <button type="button" className="text-yellow-400 underline" onClick={() => setViewArchiveId(null)}>
+                          Вернуться
+                        </button>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => deleteArchiveChat(viewArchiveId)}
+                        className="shrink-0 rounded-lg border border-white/10 px-2.5 py-1 text-[10px] font-bold text-gray-400 hover:border-red-400/30 hover:text-red-300"
+                      >
+                        Удалить
                       </button>
-                    </p>
+                    </div>
                   ) : sessionLimitReached ? (
                     <p className="text-center text-xs text-orange-300">
                       Лимит исчерпан — чат сохранён. Нажмите «Новая сессия», чтобы продолжить.

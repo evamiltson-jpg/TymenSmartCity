@@ -17,10 +17,12 @@ import {
 } from '../utils/resolveAiCard';
 import {
   archiveAndReset,
+  deleteArchive,
   loadChatState,
   saveChatState,
   type StoredChatMessage,
 } from '../utils/chatStorage';
+import { moderateUserMessage } from '../utils/chatModeration';
 
 const STORAGE_KEY = 'city_chat_v1';
 const WELCOME: StoredChatMessage = {
@@ -120,16 +122,37 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, onNavigate }) =
     }
   };
 
+  const deleteArchiveChat = (archiveId: string) => {
+    const next = deleteArchive(STORAGE_KEY, archiveId, {
+      messages,
+      sessionCount: 0,
+      archives,
+    });
+    setArchives(next.archives);
+    if (viewArchiveId === archiveId) setViewArchiveId(null);
+  };
+
   const handleSend = async (overrideText?: string) => {
     const userMsg = (overrideText ?? input).trim();
     if (!userMsg || loading || viewArchiveId) return;
+
+    const moderation = moderateUserMessage(userMsg, 'city');
+    setInput('');
+
+    if (moderation.blocked) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'user', text: userMsg },
+        { role: 'ai', text: moderation.reply ?? 'Сообщение не принято.' },
+      ]);
+      return;
+    }
 
     if (/сообщить об ошибк|жалоб|баг|не работает|сломал/i.test(userMsg)) {
       setShowComplaintForm(true);
       setComplaintText(userMsg);
     }
 
-    setInput('');
     const priorHistory = buildApiHistory();
     setMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
     setLoading(true);
@@ -224,16 +247,30 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, onNavigate }) =
               Текущий
             </button>
             {archives.map((a) => (
-              <button
+              <div
                 key={a.id}
-                type="button"
-                onClick={() => setViewArchiveId(a.id)}
-                className={`max-w-[120px] shrink-0 truncate rounded-lg px-2.5 py-1 text-[10px] font-bold ${
-                  viewArchiveId === a.id ? 'bg-yellow-400/20 text-yellow-300' : 'bg-white/5 text-gray-500'
+                className={`flex shrink-0 items-center overflow-hidden rounded-lg ${
+                  viewArchiveId === a.id ? 'bg-yellow-400/20' : 'bg-white/5'
                 }`}
               >
-                {a.title}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setViewArchiveId(a.id)}
+                  className={`max-w-[100px] truncate px-2.5 py-1 text-[10px] font-bold ${
+                    viewArchiveId === a.id ? 'text-yellow-300' : 'text-gray-500'
+                  }`}
+                >
+                  {a.title}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deleteArchiveChat(a.id)}
+                  title="Удалить из архива"
+                  className="px-1.5 py-1 text-[11px] text-gray-600 hover:text-red-400"
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -310,12 +347,21 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, onNavigate }) =
 
         <div className="flex-none border-t border-white/5 bg-[#0b2234] p-4">
           {viewArchiveId ? (
-            <p className="text-center text-xs text-gray-500">
-              Архивный диалог — только просмотр.{' '}
-              <button type="button" className="text-yellow-400 underline" onClick={() => setViewArchiveId(null)}>
-                Вернуться
+            <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+              <span>
+                Архив — только просмотр.{' '}
+                <button type="button" className="text-yellow-400 underline" onClick={() => setViewArchiveId(null)}>
+                  Вернуться
+                </button>
+              </span>
+              <button
+                type="button"
+                onClick={() => deleteArchiveChat(viewArchiveId)}
+                className="shrink-0 rounded-lg border border-white/10 px-2.5 py-1 text-[10px] font-bold text-gray-400 hover:border-red-400/30 hover:text-red-300"
+              >
+                Удалить
               </button>
-            </p>
+            </div>
           ) : (
             <>
               <div className="mb-2 flex justify-end">

@@ -31,8 +31,10 @@ export function extractProposals(text: string): ProshaProposal[] {
   return items;
 }
 
+const ANY_PROPOSAL_RE = /\{\{предложение\|[^}|]+\|[\s\S]*?\}\}/g;
+
 export function stripProposals(text: string): string {
-  return text.replace(PROPOSAL_RE, '').trim();
+  return text.replace(ANY_PROPOSAL_RE, '').trim();
 }
 
 export function extractTimelineItems(text: string): { week: string; title: string }[] {
