@@ -47,11 +47,71 @@ const LIMITS = {
   maxHistory: 8,
   maxTokensCity: 450,
   maxTokensProject: 700,
-  maxTokensComplaint: 200,
 } as const;
+
+/** HTTP-коды, при которых пробуем следующий провайдер */
+const FALLBACK_STATUSES = new Set([401, 402, 403, 429, 500, 502, 503, 529]);
+
+type ProviderId = "groq" | "gemini" | "deepseek";
+
+interface AiProvider {
+  id: ProviderId;
+  label: string;
+  getKey: () => string | undefined;
+  url: string;
+  model: string;
+}
+
+const PROVIDER_DEFS: AiProvider[] = [
+  {
+    id: "groq",
+    label: "Groq",
+    getKey: () => Deno.env.get("GROQ_API_KEY"),
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    model: "llama-3.3-70b-versatile",
+  },
+  {
+    id: "gemini",
+    label: "Gemini",
+    getKey: () =>
+      Deno.env.get("GEMINI_API_KEY") ??
+      Deno.env.get("GOOGLE_API_KEY") ??
+      undefined,
+    url:
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    model: "gemini-2.0-flash",
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    getKey: () => Deno.env.get("DEEPSEEK_API_KEY"),
+    url: "https://api.deepseek.com/chat/completions",
+    model: "deepseek-chat",
+  },
+];
 
 const trimHistory = (history: HistoryMessage[] = []): HistoryMessage[] =>
   history.slice(-LIMITS.maxHistory);
+
+const getProviderOrder = (): ProviderId[] => {
+  const raw = Deno.env.get("AI_PROVIDER_ORDER") ?? "groq,gemini,deepseek";
+  const parsed = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s): s is ProviderId =>
+      s === "groq" || s === "gemini" || s === "deepseek"
+    );
+  return parsed.length ? parsed : ["groq", "gemini", "deepseek"];
+};
+
+const getActiveProviders = (): AiProvider[] => {
+  const order = getProviderOrder();
+  const byId = new Map(PROVIDER_DEFS.map((p) => [p.id, p]));
+
+  return order
+    .map((id) => byId.get(id))
+    .filter((p): p is AiProvider => Boolean(p?.getKey()));
+};
 
 const buildCitySystemPrompt = (cityContext: string) =>
   `Ты — ИИ-консультант портала "Умный город Тюмень".
@@ -111,15 +171,37 @@ ${brief || "Проект ещё не описан — помоги начать 
 - Ссылки на проекты портала: [[проект:UUID|Название]] только если уверен в ID.`;
 };
 
-const callDeepSeek = async (
+const parseApiError = (status: number, errText: string, label: string): string => {
+  let detail = "";
+  try {
+    const parsed = JSON.parse(errText);
+    detail = parsed?.error?.message || parsed?.message || "";
+  } catch {
+    detail = errText.slice(0, 160);
+  }
+
+  if (status === 401 || status === 403) {
+    return `${label}: неверный или просроченный ключ`;
+  }
+  if (status === 402) {
+    return `${label}: закончился бесплатный лимит / баланс`;
+  }
+  if (status === 429) {
+    return `${label}: превышен лимит запросов (rate limit)`;
+  }
+  return detail ? `${label}: ${detail}` : `${label}: ошибка ${status}`;
+};
+
+const callOpenAiCompatible = async (
+  provider: AiProvider,
   systemPrompt: string,
   message: string,
   history: HistoryMessage[],
   maxTokens: number,
 ): Promise<string> => {
-  const apiKey = Deno.env.get("DEEPSEEK_API_KEY");
+  const apiKey = provider.getKey();
   if (!apiKey) {
-    throw new Error("DEEPSEEK_API_KEY не настроен на сервере");
+    throw new Error(`${provider.label}: ключ не задан`);
   }
 
   const messages = [
@@ -131,14 +213,14 @@ const callDeepSeek = async (
     { role: "user", content: message },
   ];
 
-  const response = await fetch("https://api.deepseek.com/chat/completions", {
+  const response = await fetch(provider.url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "deepseek-chat",
+      model: provider.model,
       messages,
       temperature: 0.3,
       max_tokens: maxTokens,
@@ -147,25 +229,69 @@ const callDeepSeek = async (
 
   if (!response.ok) {
     const errText = await response.text();
-    console.error("DeepSeek error:", response.status, errText);
-    let detail = "";
-    try {
-      const parsed = JSON.parse(errText);
-      detail = parsed?.error?.message || parsed?.message || "";
-    } catch {
-      detail = errText.slice(0, 120);
-    }
-    if (response.status === 401) {
-      throw new Error("Неверный ключ DeepSeek. Проверьте DEEPSEEK_API_KEY в Supabase Secrets.");
-    }
-    if (response.status === 402) {
-      throw new Error("Недостаточно баланса на аккаунте DeepSeek.");
-    }
-    throw new Error(detail ? `DeepSeek: ${detail}` : `Ошибка DeepSeek (${response.status})`);
+    console.error(`${provider.label} error:`, response.status, errText);
+    const err = new Error(parseApiError(response.status, errText, provider.label));
+    (err as Error & { status?: number }).status = response.status;
+    throw err;
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.content ?? "Не удалось получить ответ.";
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) {
+    throw new Error(`${provider.label}: пустой ответ`);
+  }
+  return text;
+};
+
+const callWithFallback = async (
+  systemPrompt: string,
+  message: string,
+  history: HistoryMessage[],
+  maxTokens: number,
+): Promise<string> => {
+  const providers = getActiveProviders();
+
+  if (!providers.length) {
+    throw new Error(
+      "Нет настроенных AI-ключей. Задайте GROQ_API_KEY и/или GEMINI_API_KEY в Supabase Secrets.",
+    );
+  }
+
+  const errors: string[] = [];
+
+  for (let i = 0; i < providers.length; i++) {
+    const provider = providers[i];
+    try {
+      const reply = await callOpenAiCompatible(
+        provider,
+        systemPrompt,
+        message,
+        history,
+        maxTokens,
+      );
+      if (i > 0) {
+        console.info(`AI fallback: used ${provider.label} after ${i} failed attempt(s)`);
+      }
+      return reply;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const status = (err as Error & { status?: number }).status;
+      errors.push(msg);
+      console.warn(`${provider.label} failed:`, msg);
+
+      const hasNext = i < providers.length - 1;
+      const shouldFallback = status ? FALLBACK_STATUSES.has(status) : true;
+
+      if (hasNext && shouldFallback) {
+        continue;
+      }
+      break;
+    }
+  }
+
+  throw new Error(
+    `Все AI-провайдеры недоступны:\n${errors.map((e) => `• ${e}`).join("\n")}`,
+  );
 };
 
 Deno.serve(async (req: Request) => {
@@ -205,8 +331,8 @@ Deno.serve(async (req: Request) => {
         const userClient = createClient(
           Deno.env.get("SUPABASE_URL") ?? "",
           Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ??
-          Deno.env.get("SUPABASE_ANON_KEY") ??
-          "",
+            Deno.env.get("SUPABASE_ANON_KEY") ??
+            "",
           { global: { headers: { Authorization: authHeader } } },
         );
         const { data: { user } } = await userClient.auth.getUser();
@@ -248,7 +374,7 @@ Deno.serve(async (req: Request) => {
       maxTokens = LIMITS.maxTokensCity;
     }
 
-    const reply = await callDeepSeek(systemPrompt, message, history, maxTokens);
+    const reply = await callWithFallback(systemPrompt, message, history, maxTokens);
 
     return new Response(
       JSON.stringify({ reply }),
