@@ -172,7 +172,11 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, onNavigate }) =
       setMessages((prev) => [...prev, { role: 'ai', text: reply }]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Неизвестная ошибка';
-      setMessages((prev) => [...prev, { role: 'ai', text: `Не получилось ответить: ${msg}` }]);
+      const isRateLimit = /лимит|rate limit|Groq|Gemini|подождите|ИИ временно/i.test(msg);
+      const text = isRateLimit
+        ? `[ИИ временно недоступен]\n${msg}`
+        : `Не получилось ответить: ${msg}`;
+      setMessages((prev) => [...prev, { role: 'ai', text }]);
     } finally {
       setLoading(false);
     }

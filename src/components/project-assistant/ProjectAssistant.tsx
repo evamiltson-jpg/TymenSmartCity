@@ -29,6 +29,8 @@ import {
 import {
   archiveAndReset,
   deleteArchive,
+  getLocalDayKey,
+  getSessionLimitHint,
   loadChatState,
   saveChatState,
   type StoredChatMessage,
@@ -125,9 +127,27 @@ export const ProjectAssistant: React.FC = () => {
 
   useEffect(() => {
     if (!viewArchiveId) {
-      saveChatState(CHAT_KEY, { messages, sessionCount, archives });
+      saveChatState(CHAT_KEY, { messages, sessionCount, archives, sessionDay: getLocalDayKey() });
     }
   }, [messages, sessionCount, archives, viewArchiveId]);
+
+  useEffect(() => {
+    const tick = () => {
+      const today = getLocalDayKey();
+      const raw = localStorage.getItem(CHAT_KEY);
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw) as { sessionDay?: string };
+        if (parsed.sessionDay && parsed.sessionDay !== today) {
+          setSessionCount(0);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     buildEventsContext().then(setEventsContext).catch(() => setEventsContext(''));
@@ -372,7 +392,7 @@ export const ProjectAssistant: React.FC = () => {
         if (nextCount >= MAX_SESSION_MESSAGES) {
           next.push({
             role: 'ai',
-            text: `[Лимит] Сессия завершена. Диалог сохранён — можно перечитать. Новые вопросы через «Новая сессия».`,
+            text: `[Лимит] Сессия завершена (${MAX_SESSION_MESSAGES} сообщений). Диалог сохранён в архиве. ${getSessionLimitHint()}`,
           });
         }
         return next;
@@ -389,10 +409,14 @@ export const ProjectAssistant: React.FC = () => {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Неизвестная ошибка';
-      setMessages((prev) => [
-        ...prev,
-        { role: 'ai', text: `${ASSISTANT_NAME} не смогла ответить: ${msg}` },
-      ]);
+      const isRateLimit = /лимит|rate limit|Groq|Gemini|подождите|ИИ временно/i.test(msg);
+      if (isRateLimit) {
+        setSessionCount(sessionCount);
+      }
+      const text = isRateLimit
+        ? `[ИИ временно недоступен]\n${msg}`
+        : `${ASSISTANT_NAME} не смогла ответить: ${msg}`;
+      setMessages((prev) => [...prev, { role: 'ai', text }]);
     } finally {
       setLoading(false);
     }
@@ -643,6 +667,9 @@ export const ProjectAssistant: React.FC = () => {
                     style={{ width: `${sessionProgress}%` }}
                   />
                 </div>
+                {sessionLimitReached && (
+                  <p className="mt-2 text-[10px] leading-snug text-orange-300/90">{getSessionLimitHint()}</p>
+                )}
                 <button
                   type="button"
                   onClick={resetSession}
@@ -769,9 +796,7 @@ export const ProjectAssistant: React.FC = () => {
                       </button>
                     </div>
                   ) : sessionLimitReached ? (
-                    <p className="text-center text-xs text-orange-300">
-                      Лимит исчерпан — чат сохранён. Нажмите «Новая сессия», чтобы продолжить.
-                    </p>
+                    <p className="text-center text-xs text-orange-300">{getSessionLimitHint()}</p>
                   ) : (
                     <div className="flex gap-2">
                       <input

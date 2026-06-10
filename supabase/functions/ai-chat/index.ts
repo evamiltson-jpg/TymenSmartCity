@@ -53,7 +53,7 @@ const LIMITS = {
 /** HTTP-коды, при которых пробуем следующий провайдер */
 const FALLBACK_STATUSES = new Set([401, 402, 403, 429, 500, 502, 503, 529]);
 
-type ProviderId = "groq" | "gemini" | "deepseek";
+type ProviderId = "groq" | "gemini";
 
 interface AiProvider {
   id: ProviderId;
@@ -81,13 +81,6 @@ const PROVIDER_DEFS: AiProvider[] = [
     url:
       "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
     model: "gemini-2.0-flash",
-  },
-  {
-    id: "deepseek",
-    label: "DeepSeek",
-    getKey: () => Deno.env.get("DEEPSEEK_API_KEY"),
-    url: "https://api.deepseek.com/chat/completions",
-    model: "deepseek-chat",
   },
 ];
 
@@ -133,14 +126,12 @@ const moderateMessage = (text: string, mode: ChatMode): string | null => {
 };
 
 const getProviderOrder = (): ProviderId[] => {
-  const raw = Deno.env.get("AI_PROVIDER_ORDER") ?? "groq,gemini,deepseek";
+  const raw = Deno.env.get("AI_PROVIDER_ORDER") ?? "groq,gemini";
   const parsed = raw
     .split(",")
     .map((s) => s.trim().toLowerCase())
-    .filter((s): s is ProviderId =>
-      s === "groq" || s === "gemini" || s === "deepseek"
-    );
-  return parsed.length ? parsed : ["groq", "gemini", "deepseek"];
+    .filter((s): s is ProviderId => s === "groq" || s === "gemini");
+  return parsed.length ? parsed : ["groq", "gemini"];
 };
 
 const getActiveProviders = (): AiProvider[] => {
@@ -234,7 +225,88 @@ technologies — через запятую: React, TypeScript, Python
 До 150 слов. Без кода.`;
 };
 
-const parseApiError = (status: number, errText: string, label: string): string => {
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const parseRetryAfterSec = (headers: Headers): number | null => {
+  const raw = headers.get("retry-after");
+  if (!raw) return null;
+  const sec = Number.parseInt(raw, 10);
+  if (Number.isFinite(sec) && sec > 0) return sec;
+  const dateMs = Date.parse(raw);
+  if (!Number.isNaN(dateMs)) {
+    const diff = Math.ceil((dateMs - Date.now()) / 1000);
+    return diff > 0 ? diff : null;
+  }
+  return null;
+};
+
+const looksLikeDailyQuota = (errText: string) =>
+  /daily|per day|requests per day|rpd|quota exceeded|resource_exhausted|rate limit.*day/i.test(
+    errText,
+  );
+
+const formatWaitLabel = (seconds: number) => {
+  if (seconds < 120) return `через ${seconds} сек`;
+  const mins = Math.ceil(seconds / 60);
+  return mins === 1 ? "через 1–2 мин" : `через ~${mins} мин`;
+};
+
+const getNextMidnightInTimeZone = (timeZone: string) => {
+  const now = Date.now();
+  for (let offsetHours = 1; offsetHours <= 30; offsetHours += 1) {
+    const candidate = new Date(now + offsetHours * 60 * 60 * 1000);
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(candidate);
+    const hour = parts.find((p) => p.type === "hour")?.value;
+    const minute = parts.find((p) => p.type === "minute")?.value;
+    if (hour === "00" && minute === "00") return candidate;
+  }
+  return new Date(now + 24 * 60 * 60 * 1000);
+};
+
+const formatTyumenDateTime = (date: Date) =>
+  date.toLocaleString("ru-RU", {
+    timeZone: "Asia/Yekaterinburg",
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+const groqDailyResetLabel = () => formatTyumenDateTime(getNextMidnightInTimeZone("UTC"));
+
+const geminiDailyResetLabel = () =>
+  formatTyumenDateTime(getNextMidnightInTimeZone("America/Los_Angeles"));
+
+const formatRateLimitError = (
+  provider: ProviderId,
+  label: string,
+  errText: string,
+  retryAfterSec: number | null,
+): string => {
+  if (retryAfterSec && retryAfterSec <= 3600) {
+    return `${label}: лимит в минуту — попробуйте ${formatWaitLabel(retryAfterSec)}.`;
+  }
+  if (looksLikeDailyQuota(errText)) {
+    if (provider === "groq") {
+      return `${label}: дневной лимит бесплатного тарифа. Обновится ${groqDailyResetLabel()} (полночь UTC).`;
+    }
+    return `${label}: дневной лимит бесплатного тарифа. Обновится ${geminiDailyResetLabel()} (полночь по тихоокеанскому времени).`;
+  }
+  return `${label}: слишком много запросов — подождите 1–2 минуты и попробуйте снова.`;
+};
+
+const parseApiError = (
+  status: number,
+  errText: string,
+  label: string,
+  provider: ProviderId,
+  retryAfterSec: number | null,
+): string => {
   let detail = "";
   try {
     const parsed = JSON.parse(errText);
@@ -242,6 +314,7 @@ const parseApiError = (status: number, errText: string, label: string): string =
   } catch {
     detail = errText.slice(0, 160);
   }
+  const combined = `${detail} ${errText}`;
 
   if (status === 401 || status === 403) {
     return `${label}: неверный или просроченный ключ`;
@@ -250,33 +323,40 @@ const parseApiError = (status: number, errText: string, label: string): string =
     return `${label}: закончился бесплатный лимит / баланс`;
   }
   if (status === 429) {
-    return `${label}: превышен лимит запросов (rate limit)`;
+    return formatRateLimitError(provider, label, combined, retryAfterSec);
   }
   return detail ? `${label}: ${detail}` : `${label}: ошибка ${status}`;
 };
 
-const callOpenAiCompatible = async (
+const buildAllProvidersRateLimitMessage = (errors: string[]) => {
+  const allRateLimited = errors.length > 0 &&
+    errors.every((e) => /лимит|подождите|попробуйте/i.test(e));
+  if (!allRateLimited) {
+    return `Сервисы ИИ временно недоступны:\n${errors.map((e) => `• ${e}`).join("\n")}`;
+  }
+  return [
+    "Сейчас исчерпан бесплатный лимит запросов к ИИ (Groq и Gemini).",
+    "",
+    "Лимиты обновляются автоматически:",
+    `• Groq — ${groqDailyResetLabel()} (полночь UTC, ~05:00 по Тюмени)`,
+    `• Gemini — ${geminiDailyResetLabel()} (полночь по тихоокеанскому времени)`,
+    "",
+    "Если это лимит «в минуту», а не дневной — достаточно подождать 1–2 минуты и отправить вопрос снова.",
+    "Ваше сообщение в сессии не потрачено — просто повторите запрос позже.",
+  ].join("\n");
+};
+
+const postChatCompletion = async (
   provider: AiProvider,
-  systemPrompt: string,
-  message: string,
-  history: HistoryMessage[],
+  messages: { role: string; content: string }[],
   maxTokens: number,
-): Promise<string> => {
+) => {
   const apiKey = provider.getKey();
   if (!apiKey) {
     throw new Error(`${provider.label}: ключ не задан`);
   }
 
-  const messages = [
-    { role: "system", content: systemPrompt },
-    ...history.map((m) => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: m.content,
-    })),
-    { role: "user", content: message },
-  ];
-
-  const response = await fetch(provider.url, {
+  return fetch(provider.url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -289,11 +369,60 @@ const callOpenAiCompatible = async (
       max_tokens: maxTokens,
     }),
   });
+};
+
+const callOpenAiCompatible = async (
+  provider: AiProvider,
+  systemPrompt: string,
+  message: string,
+  history: HistoryMessage[],
+  maxTokens: number,
+): Promise<string> => {
+  const messages = [
+    { role: "system", content: systemPrompt },
+    ...history.map((m) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.content,
+    })),
+    { role: "user", content: message },
+  ];
+
+  let response = await postChatCompletion(provider, messages, maxTokens);
+
+  if (response.status === 429) {
+    const retryAfterSec = parseRetryAfterSec(response.headers);
+    const errText = await response.text();
+    if (retryAfterSec && retryAfterSec <= 90) {
+      console.warn(`${provider.label}: 429, retry after ${retryAfterSec}s`);
+      await delay(retryAfterSec * 1000);
+      response = await postChatCompletion(provider, messages, maxTokens);
+      if (response.ok) {
+        const data = await response.json();
+        const text = data.choices?.[0]?.message?.content;
+        if (text) return text;
+      }
+    } else {
+      console.error(`${provider.label} error:`, response.status, errText);
+      const err = new Error(
+        parseApiError(429, errText, provider.label, provider.id, retryAfterSec),
+      );
+      (err as Error & { status?: number }).status = 429;
+      throw err;
+    }
+  }
 
   if (!response.ok) {
     const errText = await response.text();
     console.error(`${provider.label} error:`, response.status, errText);
-    const err = new Error(parseApiError(response.status, errText, provider.label));
+    const err = new Error(
+      parseApiError(
+        response.status,
+        errText,
+        provider.label,
+        provider.id,
+        parseRetryAfterSec(response.headers),
+      ),
+    );
     (err as Error & { status?: number }).status = response.status;
     throw err;
   }
@@ -352,9 +481,7 @@ const callWithFallback = async (
     }
   }
 
-  throw new Error(
-    `Все AI-провайдеры недоступны:\n${errors.map((e) => `• ${e}`).join("\n")}`,
-  );
+  throw new Error(buildAllProvidersRateLimitMessage(errors));
 };
 
 Deno.serve(async (req: Request) => {

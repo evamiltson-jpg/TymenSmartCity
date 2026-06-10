@@ -15,6 +15,40 @@ export interface ActiveChatState {
   messages: StoredChatMessage[];
   sessionCount: number;
   archives: ChatArchive[];
+  /** Локальная дата (YYYY-MM-DD) — для сброса лимита в полночь */
+  sessionDay?: string;
+}
+
+export const getLocalDayKey = (date = new Date()) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+/** Сбрасывает счётчик, если наступил новый календарный день */
+export function applyDailySessionReset(state: ActiveChatState): ActiveChatState {
+  const today = getLocalDayKey();
+  if (state.sessionDay === today) {
+    return { ...state, sessionDay: today };
+  }
+  return { ...state, sessionDay: today, sessionCount: 0 };
+}
+
+export function getNextMidnightLabel() {
+  const next = new Date();
+  next.setDate(next.getDate() + 1);
+  next.setHours(0, 0, 0, 0);
+  return next.toLocaleString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export function getSessionLimitHint() {
+  return `Лимит обновится ${getNextMidnightLabel()} (в полночь). Или нажмите «Новая сессия» — и можно продолжить прямо сейчас.`;
 }
 
 const makeId = () => `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -26,13 +60,14 @@ export function loadChatState(storageKey: string, welcome: StoredChatMessage): A
       return { messages: [welcome], sessionCount: 0, archives: [] };
     }
     const parsed = JSON.parse(raw) as Partial<ActiveChatState>;
-    return {
+    return applyDailySessionReset({
       messages: parsed.messages?.length ? parsed.messages : [welcome],
       sessionCount: parsed.sessionCount ?? 0,
       archives: parsed.archives ?? [],
-    };
+      sessionDay: parsed.sessionDay,
+    });
   } catch {
-    return { messages: [welcome], sessionCount: 0, archives: [] };
+    return applyDailySessionReset({ messages: [welcome], sessionCount: 0, archives: [] });
   }
 }
 
@@ -67,6 +102,7 @@ export function archiveAndReset(
     messages: [welcome],
     sessionCount: 0,
     archives: archives.slice(0, 12),
+    sessionDay: getLocalDayKey(),
   };
   saveChatState(storageKey, next);
   return next;

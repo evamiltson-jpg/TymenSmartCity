@@ -5,9 +5,8 @@
 #   SUPABASE_PROJECT_REF   — goklwsqotbwsyzctzknh
 #   GROQ_API_KEY           — ключ с console.groq.com (бесплатный tier)
 #   GEMINI_API_KEY         — ключ с aistudio.google.com/apikey (бесплатный tier)
-#   DEEPSEEK_API_KEY       — опционально, запасной провайдер
 #
-# Порядок fallback настраивается секретом AI_PROVIDER_ORDER (по умолчанию groq,gemini,deepseek)
+# Порядок fallback: AI_PROVIDER_ORDER (по умолчанию groq,gemini)
 name: Deploy Supabase Edge Functions
 
 on:
@@ -43,9 +42,6 @@ jobs:
           fi
           if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
             ARGS="$ARGS GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
-          fi
-          if [ -n "${{ secrets.DEEPSEEK_API_KEY }}" ]; then
-            ARGS="$ARGS DEEPSEEK_API_KEY=${{ secrets.DEEPSEEK_API_KEY }}"
           fi
           supabase secrets set $ARGS --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
 
