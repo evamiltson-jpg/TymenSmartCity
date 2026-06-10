@@ -3,9 +3,11 @@ import { PROJECT_STATUSES } from '../../constants/projectForm';
 import {
   deleteMyProject,
   fetchMyProjectById,
+  fetchProjectWorkspace,
   formatProjectError,
   getProjectImageUrl,
   getProjectModerationInfo,
+  isProjectOnSite,
   updateMyProject,
   type MyProjectDetail,
   type MyProjectUpdatePayload,
@@ -43,6 +45,8 @@ export const MySubmittedProjectModal: React.FC<MySubmittedProjectModalProps> = (
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  const [timeline, setTimeline] = useState<{ week: string; title: string }[]>([]);
 
   useEffect(() => {
     setError('');
@@ -62,7 +66,11 @@ export const MySubmittedProjectModal: React.FC<MySubmittedProjectModalProps> = (
           note: data.note,
           category: data.category,
           status: data.status,
+          technologies: data.technologies,
         });
+        fetchProjectWorkspace(projectId, userId)
+          .then((ws) => setTimeline(ws.timeline ?? []))
+          .catch(() => setTimeline([]));
       })
       .catch((err) => setError(formatProjectError(err)))
       .finally(() => setLoading(false));
@@ -77,10 +85,16 @@ export const MySubmittedProjectModal: React.FC<MySubmittedProjectModalProps> = (
 
     setSaving(true);
     setError('');
+    setInfo('');
     try {
-      await updateMyProject(projectId, userId, form);
+      const result = await updateMyProject(projectId, userId, form);
+      if (result.withdrawnFromSite) {
+        setInfo(
+          'Проект снят с сайта на время правок. Снова на модерации — появится примерно через час.',
+        );
+      }
       onUpdated();
-      onClose();
+      if (!result.withdrawnFromSite) onClose();
     } catch (err) {
       setError(formatProjectError(err));
     } finally {
@@ -129,6 +143,17 @@ export const MySubmittedProjectModal: React.FC<MySubmittedProjectModalProps> = (
             <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
               {error}
             </div>
+          )}
+          {info && (
+            <div className="rounded-xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-100">
+              {info}
+            </div>
+          )}
+          {mode === 'edit' && project && isProjectOnSite(project) && (
+            <p className="text-xs text-orange-200/90">
+              Проект сейчас на сайте. После сохранения он временно уберётся и снова пройдёт модерацию (~1
+              час).
+            </p>
           )}
 
           {!loading && project && mode === 'view' && (
@@ -220,6 +245,22 @@ export const MySubmittedProjectModal: React.FC<MySubmittedProjectModalProps> = (
                 </div>
               )}
 
+              {timeline.length > 0 && (
+                <div>
+                  <p className={labelClass}>Таймлайн (личный кабинет)</p>
+                  <ul className="space-y-2 text-sm text-gray-300">
+                    {timeline.map((item, i) => (
+                      <li key={i}>
+                        <span className="text-yellow-400/80 text-xs font-bold uppercase">
+                          Неделя {item.week}
+                        </span>
+                        <p>{item.title}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {moderation?.hint && <p className="text-xs text-gray-500">{moderation.hint}</p>}
             </>
           )}
@@ -286,6 +327,24 @@ export const MySubmittedProjectModal: React.FC<MySubmittedProjectModalProps> = (
                   className={`${inputClass} min-h-[60px]`}
                   value={form.note || ''}
                   onChange={(e) => setForm({ ...form, note: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Технологии (через запятую)</label>
+                <input
+                  className={inputClass}
+                  value={(form.technologies ?? []).join(', ')}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      technologies: e.target.value
+                        .split(',')
+                        .map((t) => t.trim())
+                        .filter(Boolean)
+                        .slice(0, 12),
+                    })
+                  }
+                  placeholder="React, TypeScript, Python"
                 />
               </div>
             </div>

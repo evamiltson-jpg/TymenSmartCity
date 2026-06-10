@@ -18,6 +18,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import {
   fetchMyProjectById,
   fetchMySubmittedProjects,
+  fetchProjectWorkspace,
+  getProjectModerationInfo,
+  isProjectOnSite,
+  saveProjectWorkspace,
   updateMyProject,
   type MyProjectDetail,
   type SubmittedProject,
@@ -55,6 +59,13 @@ const STAGE_OPTIONS: { value: ProjectBrief['stage']; label: string }[] = [
 ];
 
 const isSystemNotice = (text: string) => text.startsWith('[');
+
+const parseTechnologies = (value: string) =>
+  value
+    .split(/[,;\n]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .slice(0, 12);
 
 const defaultBrief: ProjectBrief = {
   linkedProjectId: null,
@@ -95,6 +106,7 @@ export const ProjectAssistant: React.FC = () => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [savingProposal, setSavingProposal] = useState(false);
+  const [savingSidebar, setSavingSidebar] = useState(false);
   const [techInput, setTechInput] = useState('');
   const [selectedItem, setSelectedItem] = useState<Record<string, unknown> | null>(null);
   const [timelinePreview, setTimelinePreview] = useState<{ week: string; title: string }[]>([]);
@@ -193,6 +205,11 @@ export const ProjectAssistant: React.FC = () => {
       }
       setBrief(myProjectToBrief(detail));
       setLinkedDetail(detail);
+      fetchProjectWorkspace(projectId, user.id)
+        .then((ws) => {
+          if (ws.timeline?.length) setTimelinePreview(ws.timeline);
+        })
+        .catch(() => undefined);
       setMessages((prev) => [
         ...prev,
         {
@@ -223,25 +240,47 @@ export const ProjectAssistant: React.FC = () => {
         else if (/питч|защит/i.test(proposal.value)) next.stage = 'pitch';
         else if (/разраб|работ/i.test(proposal.value)) next.stage = 'development';
       }
+      if (proposal.field === 'technologies') {
+        next.technologies = parseTechnologies(proposal.value);
+      }
       return next;
     });
   };
 
+  const buildProjectPayloadFromProposal = (
+    proposal: ProshaProposal,
+    detail: MyProjectDetail,
+    localBrief: ProjectBrief,
+  ) => ({
+    title: proposal.field === 'title' ? proposal.value : localBrief.title || detail.title,
+    problem: proposal.field === 'problem' ? proposal.value : detail.problem,
+    description:
+      proposal.field === 'description' ? proposal.value : localBrief.description || detail.description,
+    expected_result:
+      proposal.field === 'expected_result' ? proposal.value : detail.expected_result,
+    note: detail.note ?? null,
+    category: detail.category,
+    status: proposal.field === 'status' ? proposal.value : detail.status,
+    technologies:
+      proposal.field === 'technologies'
+        ? parseTechnologies(proposal.value)
+        : localBrief.technologies.length
+          ? localBrief.technologies
+          : detail.technologies,
+  });
+
   const handleAcceptProposal = async (msgIndex: number, proposal: ProshaProposal) => {
     setSavingProposal(true);
     try {
+      let withdrawn = false;
+
       if (brief.linkedProjectId && user?.id && linkedDetail) {
-        const payload = {
-          title: proposal.field === 'title' ? proposal.value : linkedDetail.title,
-          problem: proposal.field === 'problem' ? proposal.value : linkedDetail.problem,
-          description: proposal.field === 'description' ? proposal.value : linkedDetail.description,
-          expected_result:
-            proposal.field === 'expected_result' ? proposal.value : linkedDetail.expected_result,
-          note: linkedDetail.note ?? null,
-          category: linkedDetail.category,
-          status: proposal.field === 'status' ? proposal.value : linkedDetail.status,
-        };
-        await updateMyProject(brief.linkedProjectId, user.id, payload);
+        const result = await updateMyProject(
+          brief.linkedProjectId,
+          user.id,
+          buildProjectPayloadFromProposal(proposal, linkedDetail, brief),
+        );
+        withdrawn = result.withdrawnFromSite;
         const refreshed = await fetchMyProjectById(brief.linkedProjectId, user.id);
         if (refreshed) {
           setLinkedDetail(refreshed);
@@ -256,10 +295,10 @@ export const ProjectAssistant: React.FC = () => {
           i === msgIndex ? { ...m, proposals: undefined, dismissedProposals: true } : m,
         ),
       );
-      setMessages((prev) => [
-        ...prev,
-        { role: 'ai', text: `Записано в проект: ${proposal.label}.` },
-      ]);
+      const followUp = withdrawn
+        ? `Записано: ${proposal.label}. Проект снят с сайта на время правок — снова на модерации, появится примерно через час.`
+        : `Записано в проект: ${proposal.label}.`;
+      setMessages((prev) => [...prev, { role: 'ai', text: followUp }]);
     } catch {
       alert('Не удалось сохранить. Попробуйте в профиле вручную.');
     } finally {
@@ -341,7 +380,12 @@ export const ProjectAssistant: React.FC = () => {
 
       if (/таймлайн|недел|этап/i.test(apiText) || /недел/i.test(cleanReply)) {
         const items = extractTimelineItems(cleanReply);
-        if (items.length) setTimelinePreview(items);
+        if (items.length) {
+          setTimelinePreview(items);
+          if (brief.linkedProjectId && user?.id) {
+            saveProjectWorkspace(brief.linkedProjectId, user.id, { timeline: items }).catch(() => undefined);
+          }
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Неизвестная ошибка';
@@ -366,13 +410,61 @@ export const ProjectAssistant: React.FC = () => {
   const addTech = () => {
     const t = techInput.trim();
     if (!t || brief.technologies.includes(t)) return;
-    setBrief((b) => ({ ...b, technologies: [...b.technologies, t].slice(0, 8) }));
+    setBrief((b) => ({ ...b, technologies: [...b.technologies, t].slice(0, 12) }));
     setTechInput('');
+  };
+
+  const removeTech = (tech: string) => {
+    setBrief((b) => ({ ...b, technologies: b.technologies.filter((t) => t !== tech) }));
+  };
+
+  const saveSidebarToProject = async () => {
+    if (!brief.linkedProjectId || !user?.id || !linkedDetail) return;
+
+    setSavingSidebar(true);
+    try {
+      const result = await updateMyProject(brief.linkedProjectId, user.id, {
+        title: brief.title.trim() || linkedDetail.title,
+        problem: linkedDetail.problem,
+        description: brief.description.trim() || linkedDetail.description,
+        expected_result: linkedDetail.expected_result,
+        note: linkedDetail.note ?? null,
+        category: linkedDetail.category,
+        status: linkedDetail.status,
+        technologies: brief.technologies,
+      });
+
+      if (timelinePreview.length) {
+        await saveProjectWorkspace(brief.linkedProjectId, user.id, { timeline: timelinePreview });
+      }
+
+      const refreshed = await fetchMyProjectById(brief.linkedProjectId, user.id);
+      if (refreshed) {
+        setLinkedDetail(refreshed);
+        setBrief(myProjectToBrief(refreshed));
+      }
+
+      if (result.withdrawnFromSite) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'ai',
+            text: '[Модерация] Проект снят с сайта на время правок. Снова на модерации — появится примерно через час.',
+          },
+        ]);
+      }
+    } catch {
+      alert('Не удалось сохранить изменения в проект.');
+    } finally {
+      setSavingSidebar(false);
+    }
   };
 
   const remaining = MAX_SESSION_MESSAGES - sessionCount;
   const sessionProgress = Math.min(100, (sessionCount / MAX_SESSION_MESSAGES) * 100);
   const isLowSession = remaining <= 15 && remaining > 0 && !sessionLimitReached;
+  const linkedOnSite = linkedDetail ? isProjectOnSite(linkedDetail) : false;
+  const moderationInfo = linkedDetail ? getProjectModerationInfo(linkedDetail) : null;
 
   return (
     <>
@@ -395,9 +487,9 @@ export const ProjectAssistant: React.FC = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-stretch">
-            <div className="flex flex-col gap-6 lg:col-span-4">
-              <div className="shrink-0 rounded-[28px] border border-white/10 bg-[#122e41]/80 p-6 backdrop-blur-md">
+          <div className="prosha-panel grid min-h-0 grid-cols-1 gap-6 overflow-hidden lg:grid-cols-12 lg:grid-rows-1 lg:items-stretch">
+            <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden lg:col-span-4">
+              <div className="custom-scrollbar-field min-h-0 max-h-[52%] shrink-0 overflow-y-auto rounded-[28px] border border-white/10 bg-[#122e41]/80 p-6 backdrop-blur-md">
                 <h3 className="mb-4 text-xs font-black uppercase tracking-widest text-yellow-400">
                   Ваш проект
                 </h3>
@@ -421,9 +513,17 @@ export const ProjectAssistant: React.FC = () => {
                       ))}
                     </select>
                     {brief.linkedProjectId && linkedDetail && (
-                      <p className="mt-2 rounded-lg bg-yellow-400/10 px-3 py-2 text-[11px] text-yellow-300">
-                        Привязан: {linkedDetail.title}
-                      </p>
+                      <div className="mt-2 space-y-1 rounded-lg bg-yellow-400/10 px-3 py-2 text-[11px] text-yellow-300">
+                        <p>Привязан: {linkedDetail.title}</p>
+                        {moderationInfo && (
+                          <p className="text-yellow-200/80">{moderationInfo.hint}</p>
+                        )}
+                        {linkedOnSite && (
+                          <p className="text-orange-200/90">
+                            При сохранении правок проект временно уберётся с сайта на ~1 час.
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 ) : (
@@ -443,7 +543,7 @@ export const ProjectAssistant: React.FC = () => {
                   onChange={(e) => setBrief((b) => ({ ...b, description: e.target.value }))}
                   placeholder="О чём проект?"
                   rows={3}
-                  className="mb-4 w-full resize-none rounded-xl border border-white/10 bg-[#0b2234] px-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-yellow-400/50"
+                  className="custom-scrollbar mb-4 w-full resize-none rounded-xl border border-white/10 bg-[#0b2234] px-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-yellow-400/50"
                 />
                 <div className="mb-4 flex flex-wrap gap-2">
                   {STAGE_OPTIONS.map((s) => (
@@ -461,18 +561,52 @@ export const ProjectAssistant: React.FC = () => {
                     </button>
                   ))}
                 </div>
+                {brief.technologies.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-1.5">
+                    {brief.technologies.map((tech) => (
+                      <span
+                        key={tech}
+                        className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-1 text-[11px] text-gray-200"
+                      >
+                        {tech}
+                        <button
+                          type="button"
+                          onClick={() => removeTech(tech)}
+                          className="text-gray-500 hover:text-red-300"
+                          aria-label={`Убрать ${tech}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <input
                     value={techInput}
                     onChange={(e) => setTechInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && addTech()}
-                    placeholder="React, Python..."
+                    placeholder="Добавить технологию..."
                     className="flex-grow rounded-xl border border-white/10 bg-[#0b2234] px-3 py-2 text-xs text-white outline-none"
                   />
-                  <button type="button" onClick={addTech} className="rounded-xl bg-white/10 px-3 text-xs font-bold hover:bg-white/20">
-                    +
+                  <button
+                    type="button"
+                    onClick={addTech}
+                    className="shrink-0 rounded-xl border border-white/10 px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-gray-400 hover:border-yellow-400/30 hover:text-yellow-300"
+                  >
+                    Добавить
                   </button>
                 </div>
+                {brief.linkedProjectId && linkedDetail && (
+                  <button
+                    type="button"
+                    onClick={saveSidebarToProject}
+                    disabled={savingSidebar}
+                    className="mt-4 w-full rounded-xl bg-yellow-500 py-2.5 text-[11px] font-black uppercase tracking-widest text-black transition-colors hover:bg-yellow-400 disabled:opacity-50"
+                  >
+                    {savingSidebar ? 'Сохранение...' : 'Сохранить в проект'}
+                  </button>
+                )}
               </div>
 
               <div className="flex min-h-0 flex-1 flex-col rounded-[28px] border border-white/10 bg-[#122e41]/60 p-6 backdrop-blur-md">
@@ -519,8 +653,8 @@ export const ProjectAssistant: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex min-h-[480px] flex-col lg:col-span-8 lg:min-h-0 lg:h-full">
-              <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
+            <div className="flex h-full min-h-0 flex-col overflow-hidden lg:col-span-8">
+              <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
                 <div className="flex-none border-b border-white/5 px-4 py-3">
                   <div className="flex flex-wrap gap-2">
                     {PROJECT_QUICK_PROMPTS.map((q) => (

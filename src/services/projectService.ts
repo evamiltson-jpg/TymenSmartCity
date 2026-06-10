@@ -219,6 +219,16 @@ export interface MyProjectUpdatePayload {
   note?: string | null;
   category: string;
   status: string;
+  technologies?: string[];
+}
+
+export interface ProjectWorkspaceData {
+  timeline?: { week: string; title: string }[];
+  updated_at?: string;
+}
+
+export interface MyProjectUpdateResult {
+  withdrawnFromSite: boolean;
 }
 
 const MY_PROJECT_COLUMNS =
@@ -859,27 +869,88 @@ export const fetchMyProjectById = async (projectId: string, userId: string): Pro
   return project;
 };
 
-export const updateMyProject = async (
+export const fetchProjectWorkspace = async (
   projectId: string,
   userId: string,
-  payload: MyProjectUpdatePayload,
+): Promise<ProjectWorkspaceData> => {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('workspace_data')
+    .eq('id', projectId)
+    .eq('created_by', userId)
+    .maybeSingle();
+
+  if (error) {
+    if (isColumnError(error)) return {};
+    throw error;
+  }
+
+  const raw = data?.workspace_data;
+  if (!raw || typeof raw !== 'object') return {};
+  return raw as ProjectWorkspaceData;
+};
+
+export const saveProjectWorkspace = async (
+  projectId: string,
+  userId: string,
+  workspace: ProjectWorkspaceData,
 ) => {
   const { error } = await supabase
     .from('projects')
     .update({
-      title: payload.title.trim(),
-      problem: payload.problem.trim(),
-      description: payload.description.trim(),
-      expected_result: payload.expected_result.trim(),
-      note: payload.note?.trim() || null,
-      category: payload.category.trim(),
-      status: payload.status,
+      workspace_data: { ...workspace, updated_at: new Date().toISOString() },
     })
+    .eq('id', projectId)
+    .eq('created_by', userId);
+
+  if (error) {
+    if (isColumnError(error)) return;
+    throw error;
+  }
+  invalidateMyProjectDetailCache(projectId);
+};
+
+export const updateMyProject = async (
+  projectId: string,
+  userId: string,
+  payload: MyProjectUpdatePayload,
+): Promise<MyProjectUpdateResult> => {
+  const existing = await fetchMyProjectById(projectId, userId);
+  if (!existing) throw new Error('Проект не найден');
+
+  const wasOnSite = isProjectOnSite(existing);
+  const row: Record<string, unknown> = {
+    title: payload.title.trim(),
+    problem: payload.problem.trim(),
+    description: payload.description.trim(),
+    expected_result: payload.expected_result.trim(),
+    note: payload.note?.trim() || null,
+    category: payload.category.trim(),
+    status: payload.status,
+  };
+
+  if (payload.technologies) {
+    row.technologies = payload.technologies;
+  }
+
+  if (wasOnSite) {
+    row.is_on_site = false;
+    row.moderation_status = REVIEW_STATUS.MODERATION;
+    row.published_at = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  }
+
+  const { error } = await supabase
+    .from('projects')
+    .update(row)
     .eq('id', projectId)
     .eq('created_by', userId);
 
   if (error) throw error;
   invalidateMyProjectDetailCache(projectId);
+  invalidateSubmittedProjectsCache(userId);
+  invalidateProjectsCache();
+
+  return { withdrawnFromSite: wasOnSite };
 };
 
 export const deleteMyProject = async (projectId: string, userId: string) => {

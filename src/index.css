@@ -55,6 +55,41 @@
     background: rgba(250, 204, 21, 0.3);
     border-radius: 3px;
   }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 3px;
+  }
+
+  textarea.custom-scrollbar,
+  .custom-scrollbar-field {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(250, 204, 21, 0.35) rgba(255, 255, 255, 0.05);
+  }
+  textarea.custom-scrollbar::-webkit-scrollbar,
+  .custom-scrollbar-field::-webkit-scrollbar {
+    width: 5px;
+  }
+  textarea.custom-scrollbar::-webkit-scrollbar-thumb,
+  .custom-scrollbar-field::-webkit-scrollbar-thumb {
+    background: rgba(250, 204, 21, 0.35);
+    border-radius: 3px;
+  }
+  textarea.custom-scrollbar::-webkit-scrollbar-track,
+  .custom-scrollbar-field::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .prosha-panel {
+    height: min(720px, calc(100vh - 13rem));
+    max-height: 720px;
+    min-height: 0;
+  }
+
+  @media (min-width: 1024px) {
+    .prosha-panel {
+      grid-template-rows: minmax(0, 1fr);
+    }
+  }
 
   .animation-delay-200 {
     animation-delay: 200ms;

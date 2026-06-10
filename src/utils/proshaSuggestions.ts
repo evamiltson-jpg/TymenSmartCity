@@ -1,4 +1,10 @@
-export type ProposalField = 'title' | 'description' | 'problem' | 'expected_result' | 'status';
+export type ProposalField =
+  | 'title'
+  | 'description'
+  | 'problem'
+  | 'expected_result'
+  | 'status'
+  | 'technologies';
 
 export interface ProshaProposal {
   field: ProposalField;
@@ -12,9 +18,11 @@ const FIELD_LABELS: Record<ProposalField, string> = {
   problem: 'Проблема',
   expected_result: 'Ожидаемый результат',
   status: 'Статус',
+  technologies: 'Технологии',
 };
 
-const PROPOSAL_RE = /\{\{предложение\|(title|description|problem|expected_result|status)\|([\s\S]*?)\}\}/g;
+const PROPOSAL_RE =
+  /\{\{предложение\|(title|description|problem|expected_result|status|technologies)\|([\s\S]*?)\}\}/g;
 
 export function extractProposals(text: string): ProshaProposal[] {
   const items: ProshaProposal[] = [];
