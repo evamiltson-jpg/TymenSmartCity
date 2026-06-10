@@ -5,12 +5,19 @@ const supabaseUrl =
   import.meta.env.VITE_SUPABASE_URL ||
   '';
 
-// Legacy JWT anon key надёжнее publishable (sb_publishable_*) при нестабильной сети.
-const supabaseKey =
+// Legacy JWT anon key — обязателен для Edge Functions (verify_jwt).
+// Publishable (sb_publishable_*) для ai-chat не подходит: 401 Invalid JWT.
+const supabaseAnonJwt =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
   import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  '';
+
+const supabaseKey =
+  supabaseAnonJwt ||
   import.meta.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   '';
+
+export const getSupabaseAnonJwt = () => supabaseAnonJwt;
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseKey);
 

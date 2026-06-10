@@ -1,6 +1,7 @@
+import { FunctionsHttpError } from '@supabase/supabase-js';
 import { SERVICES_LIST } from '../constants';
 import { loadSiteEvents } from '../utils/resolveAiCard';
-import { supabase } from './supabase';
+import { getSupabaseAnonJwt, supabase } from './supabase';
 import type { MyProjectDetail } from './projectService';
 
 export type AiChatMode = 'city' | 'project' | 'complaint';
@@ -101,11 +102,59 @@ export interface ProjectAiContext {
   lookingForTeam?: boolean;
 }
 
-function extractInvokeError(data: unknown, error: { message?: string } | null): string {
+async function resolveEdgeFunctionHeaders(): Promise<Record<string, string>> {
+  const anonJwt = getSupabaseAnonJwt();
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      const expiresAt = (session.expires_at ?? 0) * 1000;
+      if (expiresAt > Date.now() + 15_000) {
+        return { Authorization: `Bearer ${session.access_token}` };
+      }
+      const { data: refreshed, error } = await supabase.auth.refreshSession();
+      if (!error && refreshed.session?.access_token) {
+        return { Authorization: `Bearer ${refreshed.session.access_token}` };
+      }
+    }
+  } catch {
+    // ниже — fallback на anon JWT
+  }
+
+  if (anonJwt) {
+    return { Authorization: `Bearer ${anonJwt}` };
+  }
+
+  return {};
+}
+
+async function extractInvokeError(data: unknown, error: unknown): Promise<string> {
   if (data && typeof data === 'object' && 'error' in data && data.error) {
     return String(data.error);
   }
-  return error?.message || 'Ошибка AI-сервиса';
+
+  if (error instanceof FunctionsHttpError && error.context) {
+    try {
+      const body = (await error.context.json()) as { error?: string; message?: string };
+      if (body.error) return body.error;
+      if (body.message) return body.message;
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  if (error && typeof error === 'object' && 'message' in error && error.message) {
+    const message = String(error.message);
+    if (message.includes('non-2xx')) {
+      if (!getSupabaseAnonJwt()) {
+        return 'Нужен legacy anon key (JWT) в VITE_SUPABASE_ANON_KEY — publishable-ключ не работает с Прошей.';
+      }
+      return 'Сервис Проши временно недоступен. Обновите страницу или попробуйте через минуту.';
+    }
+    return message;
+  }
+
+  return 'Ошибка AI-сервиса';
 }
 
 export async function sendAiMessage(params: {
@@ -116,7 +165,9 @@ export async function sendAiMessage(params: {
   eventsContext?: string;
   projectContext?: ProjectAiContext;
 }): Promise<string> {
+  const headers = await resolveEdgeFunctionHeaders();
   const { data, error } = await supabase.functions.invoke('ai-chat', {
+    headers,
     body: {
       mode: params.mode,
       message: params.message,
@@ -128,7 +179,7 @@ export async function sendAiMessage(params: {
   });
 
   if (error || (data && typeof data === 'object' && 'error' in data && data.error)) {
-    throw new Error(extractInvokeError(data, error));
+    throw new Error(await extractInvokeError(data, error));
   }
 
   return (data as { reply?: string })?.reply ?? 'Не удалось получить ответ.';
@@ -139,7 +190,9 @@ export async function submitComplaint(params: {
   page?: string;
   userEmail?: string;
 }): Promise<string> {
+  const headers = await resolveEdgeFunctionHeaders();
   const { data, error } = await supabase.functions.invoke('ai-chat', {
+    headers,
     body: {
       mode: 'complaint',
       message: '',
@@ -148,7 +201,7 @@ export async function submitComplaint(params: {
   });
 
   if (error || (data && typeof data === 'object' && 'error' in data && data.error)) {
-    throw new Error(extractInvokeError(data, error));
+    throw new Error(await extractInvokeError(data, error));
   }
 
   return (data as { reply?: string })?.reply ?? 'Жалоба отправлена.';
