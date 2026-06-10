@@ -110,12 +110,10 @@ export const AIChat: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isO
       setMessages((prev) => [...prev, { role: 'ai', text: reply }]);
     } catch (e) {
       console.error(e);
+      const msg = e instanceof Error ? e.message : 'Неизвестная ошибка';
       setMessages((prev) => [
         ...prev,
-        {
-          role: 'ai',
-          text: 'Ошибка соединения с сервером. Проверьте, что Edge Function ai-chat развёрнута в Supabase.',
-        },
+        { role: 'ai', text: `Ошибка: ${msg}` },
       ]);
     } finally {
       setLoading(false);

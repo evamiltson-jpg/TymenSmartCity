@@ -15,10 +15,18 @@ interface HistoryMessage {
 }
 
 interface ProjectContext {
+  projectId?: string;
   title?: string;
   description?: string;
+  problem?: string;
+  expectedResult?: string;
   stage?: string;
+  status?: string;
+  direction?: string;
   technologies?: string[];
+  neededRoles?: string[];
+  teamName?: string;
+  lookingForTeam?: boolean;
 }
 
 interface RequestBody {
@@ -63,17 +71,27 @@ ${cityContext}
 
 const buildProjectSystemPrompt = (ctx: ProjectContext) => {
   const brief = [
-    ctx.title ? `Название (черновик): ${ctx.title}` : null,
+    ctx.projectId ? `ID проекта на портале: ${ctx.projectId}` : null,
+    ctx.title ? `Название: ${ctx.title}` : null,
     ctx.stage ? `Стадия: ${ctx.stage}` : null,
+    ctx.status ? `Статус в системе: ${ctx.status}` : null,
+    ctx.direction ? `Направление: ${ctx.direction}` : null,
+    ctx.problem ? `Проблема: ${ctx.problem}` : null,
     ctx.description ? `Описание: ${ctx.description}` : null,
+    ctx.expectedResult ? `Ожидаемый результат: ${ctx.expectedResult}` : null,
     ctx.technologies?.length
       ? `Технологии: ${ctx.technologies.join(", ")}`
       : null,
+    ctx.neededRoles?.length
+      ? `Нужные роли: ${ctx.neededRoles.join(", ")}`
+      : null,
+    ctx.teamName ? `Команда: ${ctx.teamName}` : null,
+    ctx.lookingForTeam ? "Ищет участников в команду: да" : null,
   ]
     .filter(Boolean)
     .join("\n");
 
-  return `Ты — проектный ИИ-консультант для студентов портала "Умный город Тюмень".
+  return `Ты — Проша, проектный ИИ-консультант для студентов портала "Умный город Тюмень". Обращайся к себе как Проша.
 
 КОНТЕКСТ ПРОЕКТА ПОЛЬЗОВАТЕЛЯ:
 ${brief || "Проект ещё не описан — помоги начать с идеи."}
@@ -130,7 +148,20 @@ const callDeepSeek = async (
   if (!response.ok) {
     const errText = await response.text();
     console.error("DeepSeek error:", response.status, errText);
-    throw new Error("Ошибка AI-сервиса");
+    let detail = "";
+    try {
+      const parsed = JSON.parse(errText);
+      detail = parsed?.error?.message || parsed?.message || "";
+    } catch {
+      detail = errText.slice(0, 120);
+    }
+    if (response.status === 401) {
+      throw new Error("Неверный ключ DeepSeek. Проверьте DEEPSEEK_API_KEY в Supabase Secrets.");
+    }
+    if (response.status === 402) {
+      throw new Error("Недостаточно баланса на аккаунте DeepSeek.");
+    }
+    throw new Error(detail ? `DeepSeek: ${detail}` : `Ошибка DeepSeek (${response.status})`);
   }
 
   const data = await response.json();
@@ -173,7 +204,9 @@ Deno.serve(async (req: Request) => {
       if (authHeader) {
         const userClient = createClient(
           Deno.env.get("SUPABASE_URL") ?? "",
-          Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+          Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ??
+          Deno.env.get("SUPABASE_ANON_KEY") ??
+          "",
           { global: { headers: { Authorization: authHeader } } },
         );
         const { data: { user } } = await userClient.auth.getUser();
