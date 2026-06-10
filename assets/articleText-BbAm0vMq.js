@@ -1,4 +1,4 @@
-import{j as a}from"./index-fbWaUWk2.js";const i=["Комментарии не найдены","Подпишитесь на рассылку","Оставить комментарий","Читать оригинал"];function c(r){if(!r)return"";let e=r.replace(/\r\n?/g,`
+import{j as a}from"./index-CYANopxK.js";const i=["Комментарии не найдены","Подпишитесь на рассылку","Оставить комментарий","Читать оригинал"];function c(r){if(!r)return"";let e=r.replace(/\r\n?/g,`
 `).replace(/\u00a0/g," ");for(const n of i){const t=e.indexOf(n);t>0&&(e=e.slice(0,t))}return e=e.replace(/[ \t]+\n/g,`
 `),e=e.replace(/\n[ \t]+/g,`
 `),e=e.replace(/\n{3,}/g,`
