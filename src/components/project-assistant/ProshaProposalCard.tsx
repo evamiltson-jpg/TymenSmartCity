@@ -6,6 +6,7 @@ interface ProshaProposalCardProps {
   onAccept: () => void;
   onReject: () => void;
   saving?: boolean;
+  linkedProject?: boolean;
 }
 
 export const ProshaProposalCard: React.FC<ProshaProposalCardProps> = ({
@@ -13,10 +14,14 @@ export const ProshaProposalCard: React.FC<ProshaProposalCardProps> = ({
   onAccept,
   onReject,
   saving,
+  linkedProject,
 }) => (
   <div className="mt-3 rounded-xl border border-yellow-400/25 bg-yellow-400/5 p-3">
     <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-yellow-400/80">
-      Предложение · {proposal.label}
+      Записать в проект · {proposal.label}
+    </p>
+    <p className="mb-2 text-[10px] text-gray-500">
+      {linkedProject ? 'Сохранится в ваш проект на портале' : 'Сохранится в форму слева'}
     </p>
     <p className="mb-3 text-sm text-white/90">{proposal.value}</p>
     <div className="flex gap-2">

@@ -11,8 +11,8 @@ import {
   projectBriefToContext,
   sendAiMessage,
 } from '../../services/aiService';
-import { parseAiLinks } from '../../utils/parseAiLinks';
 import type { AiLinkClickPayload } from '../../utils/parseAiLinks';
+import { renderAiMessage } from '../../utils/formatAiMessage';
 import { InfoModal } from '../InfoModal';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -281,19 +281,20 @@ export const ProjectAssistant: React.FC = () => {
     if (viewArchiveId === archiveId) setViewArchiveId(null);
   };
 
-  const sendMessage = async (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed || loading || viewArchiveId) return;
+  const sendMessage = async (text: string, options?: { apiMessage?: string }) => {
+    const displayText = text.trim();
+    const apiText = (options?.apiMessage ?? text).trim();
+    if (!displayText || !apiText || loading || viewArchiveId) return;
 
     if (sessionLimitReached) return;
 
-    const moderation = moderateUserMessage(trimmed, 'project');
+    const moderation = moderateUserMessage(apiText, 'project');
     setInput('');
 
     if (moderation.blocked) {
       setMessages((prev) => [
         ...prev,
-        { role: 'user', text: trimmed },
+        { role: 'user', text: displayText },
         { role: 'ai', text: moderation.reply ?? 'Сообщение не принято.' },
       ]);
       return;
@@ -301,7 +302,7 @@ export const ProjectAssistant: React.FC = () => {
 
     const priorHistory = buildApiHistory();
     const nextCount = sessionCount + 1;
-    setMessages((prev) => [...prev, { role: 'user', text: trimmed }]);
+    setMessages((prev) => [...prev, { role: 'user', text: displayText }]);
     setLoading(true);
     setSessionCount(nextCount);
 
@@ -310,7 +311,7 @@ export const ProjectAssistant: React.FC = () => {
     try {
       const rawReply = await sendAiMessage({
         mode: 'project',
-        message: trimmed,
+        message: apiText,
         history: priorHistory,
         eventsContext,
         projectContext: projectBriefToContext(brief, linkedDetail),
@@ -338,7 +339,7 @@ export const ProjectAssistant: React.FC = () => {
         return next;
       });
 
-      if (/таймлайн|недел|этап/i.test(trimmed) || /недел/i.test(cleanReply)) {
+      if (/таймлайн|недел|этап/i.test(apiText) || /недел/i.test(cleanReply)) {
         const items = extractTimelineItems(cleanReply);
         if (items.length) setTimelinePreview(items);
       }
@@ -394,7 +395,7 @@ export const ProjectAssistant: React.FC = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-stretch">
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-start">
             <div className="space-y-6 lg:col-span-4">
               <div className="rounded-[28px] border border-white/10 bg-[#122e41]/80 p-6 backdrop-blur-md">
                 <h3 className="mb-4 text-xs font-black uppercase tracking-widest text-yellow-400">
@@ -518,14 +519,14 @@ export const ProjectAssistant: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex min-h-[520px] flex-col lg:col-span-8">
+            <div className="flex flex-col lg:col-span-8">
               <div className="mb-4 flex flex-wrap gap-2">
                 {PROJECT_QUICK_PROMPTS.map((q) => (
                   <button
                     key={q.id}
                     type="button"
                     disabled={loading || sessionLimitReached || !!viewArchiveId}
-                    onClick={() => sendMessage(q.prompt)}
+                    onClick={() => sendMessage(q.userText, { apiMessage: q.apiPrompt })}
                     className="rounded-xl border border-white/10 bg-[#122e41]/80 px-3 py-2 text-[11px] font-bold text-gray-300 transition-all hover:border-yellow-400/30 hover:bg-yellow-400/10 hover:text-yellow-300 disabled:opacity-40"
                   >
                     {q.label}
@@ -573,7 +574,7 @@ export const ProjectAssistant: React.FC = () => {
                 </div>
               )}
 
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
+              <div className="flex h-[min(560px,calc(100vh-14rem))] shrink-0 flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
                 <div ref={scrollRef} className="custom-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
                   {displayedMessages.map((m, i) => (
                     <div
@@ -590,13 +591,14 @@ export const ProjectAssistant: React.FC = () => {
                         }`}
                       >
                         {m.role === 'ai' && !isSystemNotice(m.text)
-                          ? parseAiLinks(m.text, { onLinkClick: handleLinkClick })
+                          ? renderAiMessage(m.text, { onLinkClick: handleLinkClick })
                           : m.text}
                         {m.proposals?.map((p, pi) => (
                           <ProshaProposalCard
                             key={pi}
                             proposal={p}
                             saving={savingProposal}
+                            linkedProject={!!brief.linkedProjectId}
                             onAccept={() => handleAcceptProposal(i, p)}
                             onReject={() => handleRejectProposal(i)}
                           />
