@@ -31,14 +31,6 @@ const linkStyle = (type: AiLinkType) => {
   return 'bg-sky-400/10 text-sky-300 border-sky-400/30 hover:bg-sky-500 hover:text-white';
 };
 
-const linkIcon = (type: AiLinkType) => {
-  if (type === 'проект') return '🚀';
-  if (type === 'раздел') return '🧭';
-  if (type === 'событие') return '🏆';
-  if (type === 'команда') return '👥';
-  return '🏛';
-};
-
 export function parseAiLinks(text: string, { onLinkClick }: ParseAiLinksOptions): React.ReactNode[] {
   const cleanText = text.replace(/\*\*/g, '');
   const parts = cleanText.split(LINK_PATTERN);
@@ -65,9 +57,9 @@ export function parseAiLinks(text: string, { onLinkClick }: ParseAiLinksOptions)
         key={i}
         type="button"
         onClick={() => onLinkClick({ type, id, label })}
-        className={`mx-1 my-1 inline-flex items-center gap-2 whitespace-nowrap rounded-lg border px-3 py-1.5 text-[13px] font-bold shadow-sm transition-all ${linkStyle(type)}`}
+        className={`mx-1 my-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-3 py-1.5 text-[13px] font-bold shadow-sm transition-all ${linkStyle(type)}`}
       >
-        {linkIcon(type)} {label}
+        {label}
         <span className="text-[10px] opacity-50">↗</span>
       </button>
     );

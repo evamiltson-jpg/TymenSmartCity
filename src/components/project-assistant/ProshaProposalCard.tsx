@@ -26,7 +26,7 @@ export const ProshaProposalCard: React.FC<ProshaProposalCardProps> = ({
         onClick={onAccept}
         className="rounded-lg bg-yellow-400 px-3 py-1.5 text-[11px] font-bold text-black transition-colors hover:bg-yellow-300 disabled:opacity-50"
       >
-        {saving ? 'Сохраняю...' : 'Принять ✓'}
+        {saving ? 'Сохраняю...' : 'Принять'}
       </button>
       <button
         type="button"

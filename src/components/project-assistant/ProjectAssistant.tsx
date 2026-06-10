@@ -42,15 +42,17 @@ const CHAT_KEY = 'prosha_chat_v1';
 
 const WELCOME: StoredChatMessage = {
   role: 'ai',
-  text: `Привет! Я ${ASSISTANT_NAME} — твой добрый помощник по проекту 🌱\n\nРасскажи идею или привяжи готовый проект — помогу с названием, планом, командой и конкурсами. Ты делаешь — я подсказываю!`,
+  text: `Здравствуйте! Я ${ASSISTANT_NAME} — консультант по студенческим проектам.\n\nРасскажите идею или привяжите проект из профиля — отвечу по вашему вопросу.`,
 };
 
 const STAGE_OPTIONS: { value: ProjectBrief['stage']; label: string }[] = [
-  { value: 'idea', label: '💡 Идея' },
-  { value: 'development', label: '🔧 Разработка' },
-  { value: 'mvp', label: '🚀 MVP' },
-  { value: 'pitch', label: '🎯 Питч' },
+  { value: 'idea', label: 'Идея' },
+  { value: 'development', label: 'Разработка' },
+  { value: 'mvp', label: 'MVP' },
+  { value: 'pitch', label: 'Питч' },
 ];
+
+const isSystemNotice = (text: string) => text.startsWith('[');
 
 const defaultBrief: ProjectBrief = {
   linkedProjectId: null,
@@ -193,7 +195,7 @@ export const ProjectAssistant: React.FC = () => {
         ...prev,
         {
           role: 'ai',
-          text: `Супер! Привязала «${detail.title}» 🔗 Теперь советы будут точнее.`,
+          text: `Проект «${detail.title}» привязан. Советы будут учитывать его данные.`,
         },
       ]);
     } catch {
@@ -254,7 +256,7 @@ export const ProjectAssistant: React.FC = () => {
       );
       setMessages((prev) => [
         ...prev,
-        { role: 'ai', text: `Записала в проект: ${proposal.label} ✅` },
+        { role: 'ai', text: `Записано в проект: ${proposal.label}.` },
       ]);
     } catch {
       alert('Не удалось сохранить. Попробуйте в профиле вручную.');
@@ -311,7 +313,7 @@ export const ProjectAssistant: React.FC = () => {
         if (nextCount >= MAX_SESSION_MESSAGES) {
           next.push({
             role: 'ai',
-            text: `📌 Лимит сессии достигнут — новые вопросы в «Новой сессии». Этот диалог сохранён, можно перечитать.`,
+            text: `[Лимит] Сессия завершена. Диалог сохранён — можно перечитать. Новые вопросы через «Новая сессия».`,
           });
         }
         return next;
@@ -363,9 +365,8 @@ export const ProjectAssistant: React.FC = () => {
 
         <div className="relative p-8 md:p-14">
           <div className="mb-10 text-center">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-yellow-400/20 bg-yellow-400/10 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-yellow-400">
-              <span className="text-base">🌱</span>
-              {ASSISTANT_NAME} · помощник по проекту
+            <div className="mb-4 inline-flex items-center rounded-full border border-yellow-400/20 bg-yellow-400/10 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-yellow-400">
+              {ASSISTANT_NAME} · консультант по проекту
             </div>
             <h2 className="mb-3 text-3xl font-bold md:text-4xl">Придумайте. Спланируйте. Запустите.</h2>
             <p className="mx-auto max-w-2xl text-sm text-gray-400">
@@ -374,7 +375,7 @@ export const ProjectAssistant: React.FC = () => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-stretch">
             <div className="space-y-6 lg:col-span-4">
               <div className="rounded-[28px] border border-white/10 bg-[#122e41]/80 p-6 backdrop-blur-md">
                 <h3 className="mb-4 text-xs font-black uppercase tracking-widest text-yellow-400">
@@ -401,7 +402,7 @@ export const ProjectAssistant: React.FC = () => {
                     </select>
                     {brief.linkedProjectId && linkedDetail && (
                       <p className="mt-2 rounded-lg bg-yellow-400/10 px-3 py-2 text-[11px] text-yellow-300">
-                        🔗 {linkedDetail.title}
+                        Привязан: {linkedDetail.title}
                       </p>
                     )}
                   </div>
@@ -455,8 +456,8 @@ export const ProjectAssistant: React.FC = () => {
               </div>
 
               <div className="rounded-[28px] border border-white/10 bg-[#122e41]/60 p-6 backdrop-blur-md">
-                <h3 className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white/70">
-                  <span>📅</span> Таймлайн
+                <h3 className="mb-4 text-xs font-black uppercase tracking-widest text-white/70">
+                  Таймлайн
                 </h3>
                 {timelinePreview.length > 0 ? (
                   <div className="relative ml-3 max-h-48 space-y-3 overflow-y-auto border-l-2 border-yellow-400/30 pl-6 custom-scrollbar">
@@ -498,7 +499,7 @@ export const ProjectAssistant: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-col lg:col-span-8">
+            <div className="flex min-h-[520px] flex-col lg:col-span-8">
               <div className="mb-4 flex flex-wrap gap-2">
                 {PROJECT_QUICK_PROMPTS.map((q) => (
                   <button
@@ -506,9 +507,8 @@ export const ProjectAssistant: React.FC = () => {
                     type="button"
                     disabled={loading || sessionLimitReached || !!viewArchiveId}
                     onClick={() => sendMessage(q.prompt)}
-                    className="group flex items-center gap-1.5 rounded-xl border border-white/10 bg-[#122e41]/80 px-3 py-2 text-[11px] font-bold text-gray-300 transition-all hover:border-yellow-400/30 hover:bg-yellow-400/10 hover:text-yellow-300 disabled:opacity-40"
+                    className="rounded-xl border border-white/10 bg-[#122e41]/80 px-3 py-2 text-[11px] font-bold text-gray-300 transition-all hover:border-yellow-400/30 hover:bg-yellow-400/10 hover:text-yellow-300 disabled:opacity-40"
                   >
-                    <span className="transition-transform group-hover:scale-110">{q.icon}</span>
                     {q.label}
                   </button>
                 ))}
@@ -540,27 +540,23 @@ export const ProjectAssistant: React.FC = () => {
                 </div>
               )}
 
-              <div className="flex h-[480px] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
                 <div ref={scrollRef} className="custom-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
                   {displayedMessages.map((m, i) => (
                     <div
                       key={i}
-                      className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
                     >
-                      {m.role === 'ai' && <span className="mt-1 shrink-0 text-sm">🌱</span>}
                       <div
-                        className={`max-w-[90%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                        className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                           m.role === 'user'
                             ? 'bg-yellow-500 font-medium text-black'
-                            : m.text.startsWith('⚠️') || m.text.startsWith('🔔') || m.text.startsWith('📌')
+                            : isSystemNotice(m.text)
                               ? 'border border-orange-400/30 bg-orange-950/40 text-orange-100'
                               : 'bg-[#1a3a4d] text-white/95'
                         }`}
                       >
-                        {m.role === 'ai' &&
-                        !m.text.startsWith('⚠️') &&
-                        !m.text.startsWith('🔔') &&
-                        !m.text.startsWith('📌')
+                        {m.role === 'ai' && !isSystemNotice(m.text)
                           ? parseAiLinks(m.text, { onLinkClick: handleLinkClick })
                           : m.text}
                         {m.proposals?.map((p, pi) => (

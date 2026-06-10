@@ -25,7 +25,7 @@ import {
 const STORAGE_KEY = 'city_chat_v1';
 const WELCOME: StoredChatMessage = {
   role: 'ai',
-  text: 'Привет! Я навигатор по сайту «Умный город Тюмень» 🧭\n\nПомогу быстро найти сервис, проект или раздел. Спросите коротко — отвечу по делу.',
+  text: 'Здравствуйте! Помогу найти сервис, проект или раздел на портале «Умный город Тюмень».',
 };
 
 interface AIChatProps {
@@ -191,21 +191,20 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, onNavigate }) =
     <>
       <div className="fixed bottom-4 right-4 z-[200] flex h-[min(560px,calc(100vh-6rem))] w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[#122e41] shadow-2xl animate-in slide-in-from-bottom-5 duration-500 sm:bottom-10 sm:right-10 sm:w-[400px]">
         <div className="flex flex-none items-center justify-between border-b border-white/10 bg-[#0b2234] px-5 py-4">
-          <div className="flex items-center gap-3">
-            <span className="text-lg">🧭</span>
-            <div>
-              <span className="block text-xs font-bold text-white">Навигатор сайта</span>
-              <span className="text-[10px] text-gray-500">коротко и по делу</span>
-            </div>
+          <div>
+            <span className="mb-1 inline-block rounded-full border border-yellow-400/20 bg-yellow-400/10 px-2.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-yellow-400">
+              Навигатор
+            </span>
+            <span className="block text-sm font-bold text-white">Умный город Тюмень</span>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setShowComplaintForm((v) => !v)}
               title="Сообщить об ошибке"
-              className="rounded-lg border border-white/10 px-2 py-1 text-[10px] font-bold text-gray-400 transition-colors hover:border-red-400/30 hover:text-red-300"
+              className="rounded-lg border border-white/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 transition-colors hover:border-red-400/30 hover:text-red-300"
             >
-              🐛
+              Ошибка
             </button>
             <button type="button" onClick={onClose} className="text-2xl text-white/50 hover:text-white">
               &times;
@@ -292,8 +291,7 @@ export const AIChat: React.FC<AIChatProps> = ({ isOpen, onClose, onNavigate }) =
           className="custom-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#0f2536] p-5"
         >
           {displayedMessages.map((m, i) => (
-            <div key={i} className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              {m.role === 'ai' && <span className="mt-1 text-sm">🧭</span>}
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div
                 className={`max-w-[88%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                   m.role === 'user'
