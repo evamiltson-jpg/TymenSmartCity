@@ -3,12 +3,19 @@ import {
   INITIATIVE_STATUS_COLORS,
   INITIATIVE_STATUS_LABELS,
 } from '../../constants/initiatives';
-import { fetchMyInitiatives, type CitizenInitiative } from '../../services/initiativeService';
+import {
+  canDeleteInitiative,
+  canEditInitiative,
+  fetchMyInitiatives,
+  type CitizenInitiative,
+} from '../../services/initiativeService';
 import { InitiativeCard } from '../InitiativeCard';
+import { MyInitiativeModal } from './MyInitiativeModal';
 
 interface ProfileInitiativesTabProps {
   userId: string;
   onOpenSubmit?: () => void;
+  refreshKey?: number;
 }
 
 const formatDate = (iso: string) =>
@@ -23,33 +30,30 @@ const formatDate = (iso: string) =>
 export const ProfileInitiativesTab: React.FC<ProfileInitiativesTabProps> = ({
   userId,
   onOpenSubmit,
+  refreshKey = 0,
 }) => {
   const [initiatives, setInitiatives] = useState<CitizenInitiative[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [managedInitiative, setManagedInitiative] = useState<{
+    id: string;
+    mode: 'view' | 'edit';
+  } | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = () => {
     setLoading(true);
     setError('');
-
     void fetchMyInitiatives(userId)
-      .then((data) => {
-        if (!cancelled) setInitiatives(data);
-      })
+      .then(setInitiatives)
       .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Не удалось загрузить инициативы.');
-        }
+        setError(err instanceof Error ? err.message : 'Не удалось загрузить инициативы.');
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .finally(() => setLoading(false));
+  };
 
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
+  useEffect(() => {
+    load();
+  }, [userId, refreshKey]);
 
   if (loading) {
     return (
@@ -90,35 +94,88 @@ export const ProfileInitiativesTab: React.FC<ProfileInitiativesTabProps> = ({
   }
 
   return (
-    <div className="space-y-6">
-      <p className="text-gray-400 text-sm">
-        Всего предложений: <span className="text-white font-bold">{initiatives.length}</span>
-      </p>
+    <>
+      <div className="space-y-6">
+        <p className="text-gray-400 text-sm">
+          Всего предложений: <span className="text-white font-bold">{initiatives.length}</span>
+        </p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-        {initiatives.map((item) => (
-          <div key={item.id} className="space-y-3">
-            <InitiativeCard initiative={item} isOwn compact />
-            <div className="px-1 flex flex-wrap items-center gap-3 text-xs text-gray-500">
-              <span>Отправлено: {formatDate(item.created_at)}</span>
-              <span
-                className={`px-2 py-0.5 rounded border font-bold uppercase ${INITIATIVE_STATUS_COLORS[item.status]}`}
-              >
-                {INITIATIVE_STATUS_LABELS[item.status]}
-              </span>
-              {item.importance_votes > 0 && (
-                <span>
-                  Оценка жителей:{' '}
-                  <span className="text-yellow-400 font-bold">
-                    {Number(item.importance_rating).toFixed(1)}
-                  </span>{' '}
-                  ({item.importance_votes})
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+          {initiatives.map((item) => {
+            const editable = canEditInitiative(item.status);
+            const deletable = canDeleteInitiative(item.status);
+
+            return (
+              <div key={item.id} className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setManagedInitiative({ id: item.id, mode: 'view' })}
+                  className="w-full text-left"
+                >
+                  <InitiativeCard initiative={item} isOwn compact />
+                </button>
+
+                <div className="px-1 flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-gray-500">
+                  <span>Отправлено: {formatDate(item.created_at)}</span>
+                  <span
+                    className={`px-2 py-0.5 rounded border font-bold uppercase ${INITIATIVE_STATUS_COLORS[item.status]}`}
+                  >
+                    {INITIATIVE_STATUS_LABELS[item.status]}
+                  </span>
+                  {item.importance_votes > 0 && (
+                    <span>
+                      Оценка:{' '}
+                      <span className="text-yellow-400 font-bold">
+                        {Number(item.importance_rating).toFixed(1)}
+                      </span>{' '}
+                      ({item.importance_votes})
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-2 px-1">
+                  <button
+                    type="button"
+                    onClick={() => setManagedInitiative({ id: item.id, mode: 'view' })}
+                    className="flex-1 min-w-[88px] py-2.5 rounded-xl bg-white/5 border border-white/10 text-white font-bold text-[10px] uppercase hover:bg-white/10"
+                  >
+                    Открыть
+                  </button>
+                  {editable && (
+                    <button
+                      type="button"
+                      onClick={() => setManagedInitiative({ id: item.id, mode: 'edit' })}
+                      className="flex-1 min-w-[88px] py-2.5 rounded-xl bg-yellow-400/10 border border-yellow-400/30 text-yellow-400 font-bold text-[10px] uppercase hover:bg-yellow-400/20"
+                    >
+                      Изменить
+                    </button>
+                  )}
+                  {deletable && (
+                    <button
+                      type="button"
+                      onClick={() => setManagedInitiative({ id: item.id, mode: 'view' })}
+                      className="flex-1 min-w-[88px] py-2.5 rounded-xl border border-rose-500/30 text-rose-400 font-bold text-[10px] uppercase hover:bg-rose-500/10"
+                    >
+                      Удалить
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </div>
+
+      {managedInitiative && (
+        <MyInitiativeModal
+          initiativeId={managedInitiative.id}
+          userId={userId}
+          mode={managedInitiative.mode}
+          onClose={() => setManagedInitiative(null)}
+          onUpdated={load}
+          onDeleted={load}
+        />
+      )}
+    </>
   );
 };

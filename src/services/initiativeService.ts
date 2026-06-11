@@ -27,6 +27,33 @@ export interface CreateInitiativePayload {
   photoUrls: string[];
 }
 
+export interface UpdateInitiativePayload {
+  title: string;
+  description: string;
+  address?: string;
+  category: InitiativeCategory;
+  photoUrls: string[];
+}
+
+export const EDITABLE_INITIATIVE_STATUSES: InitiativeStatus[] = ['pending', 'in_review'];
+export const DELETABLE_INITIATIVE_STATUSES: InitiativeStatus[] = ['pending', 'rejected'];
+
+export const canEditInitiative = (status: InitiativeStatus): boolean =>
+  EDITABLE_INITIATIVE_STATUSES.includes(status);
+
+export const canDeleteInitiative = (status: InitiativeStatus): boolean =>
+  DELETABLE_INITIATIVE_STATUSES.includes(status);
+
+const formatInitiativeError = (err: unknown): string => {
+  if (err instanceof Error) {
+    if (/permission denied|42501/i.test(err.message)) {
+      return 'Нет прав на изменение инициативы.';
+    }
+    return err.message;
+  }
+  return 'Не удалось выполнить операцию с инициативой.';
+};
+
 const BUCKET = 'initiative-photos';
 
 export const validateInitiativePhoto = (file: File): { ok: boolean; error?: string } => {
@@ -138,6 +165,88 @@ export const fetchMyInitiatives = async (userId: string): Promise<CitizenInitiat
 
   if (error) throw new Error(error.message);
   return (data ?? []) as CitizenInitiative[];
+};
+
+export const fetchMyInitiativeById = async (
+  initiativeId: string,
+  userId: string,
+): Promise<CitizenInitiative | null> => {
+  if (!isSupabaseConfigured) return null;
+
+  await ensureAuthSession();
+
+  const { data, error } = await supabase
+    .from('citizen_initiatives')
+    .select('*')
+    .eq('id', initiativeId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error) throw new Error(formatInitiativeError(error));
+  return (data as CitizenInitiative) ?? null;
+};
+
+export const updateCitizenInitiative = async (
+  initiativeId: string,
+  userId: string,
+  payload: UpdateInitiativePayload,
+): Promise<CitizenInitiative> => {
+  if (!isSupabaseConfigured) {
+    throw new Error('Supabase не настроен.');
+  }
+
+  await ensureAuthSession();
+
+  const existing = await fetchMyInitiativeById(initiativeId, userId);
+  if (!existing) throw new Error('Инициатива не найдена.');
+  if (!canEditInitiative(existing.status)) {
+    throw new Error('Эту инициативу нельзя редактировать — она уже на рассмотрении или в работе.');
+  }
+
+  const { data, error } = await supabase
+    .from('citizen_initiatives')
+    .update({
+      title: payload.title.trim(),
+      description: payload.description.trim(),
+      address: payload.address?.trim() || null,
+      category: payload.category,
+      photo_urls: payload.photoUrls,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', initiativeId)
+    .eq('user_id', userId)
+    .in('status', EDITABLE_INITIATIVE_STATUSES)
+    .select()
+    .single();
+
+  if (error) throw new Error(formatInitiativeError(error));
+  return data as CitizenInitiative;
+};
+
+export const deleteCitizenInitiative = async (
+  initiativeId: string,
+  userId: string,
+): Promise<void> => {
+  if (!isSupabaseConfigured) {
+    throw new Error('Supabase не настроен.');
+  }
+
+  await ensureAuthSession();
+
+  const existing = await fetchMyInitiativeById(initiativeId, userId);
+  if (!existing) throw new Error('Инициатива не найдена.');
+  if (!canDeleteInitiative(existing.status)) {
+    throw new Error('Можно удалить только инициативу «На рассмотрении» или «Отклонено».');
+  }
+
+  const { error } = await supabase
+    .from('citizen_initiatives')
+    .delete()
+    .eq('id', initiativeId)
+    .eq('user_id', userId)
+    .in('status', DELETABLE_INITIATIVE_STATUSES);
+
+  if (error) throw new Error(formatInitiativeError(error));
 };
 
 const fetchUserVotesForInitiatives = async (
