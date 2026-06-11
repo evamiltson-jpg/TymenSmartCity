@@ -68,8 +68,10 @@ export const ChatSecurityNotice: React.FC = () => {
             label="Шифрование сообщений и файлов (AES-256-GCM)"
             hint={
               checks.encryption
-                ? 'Ключ загружен. После изменения .env.local перезапустите npm run dev.'
-                : 'Добавьте VITE_MESSAGE_ENCRYPTION_KEY в .env.local (см. .env.example). На GitHub Pages — секрет с тем же значением и новый деплой.'
+                ? `Ключ загружен${typeof window !== 'undefined' && window.location.hostname.includes('github.io') ? ' (GitHub Pages)' : ' (локально)'}.`
+                : typeof window !== 'undefined' && window.location.hostname.includes('github.io')
+                  ? 'На GitHub Pages: секрет VITE_MESSAGE_ENCRYPTION_KEY в Actions + Run workflow «Deploy to GitHub Pages» + Ctrl+F5. Supabase Secrets не используются.'
+                  : 'Добавьте VITE_MESSAGE_ENCRYPTION_KEY в .env.local, перезапустите npm run dev. Supabase Secrets для чата не нужны.'
             }
           />
         </ul>

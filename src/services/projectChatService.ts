@@ -38,6 +38,7 @@ export interface ChatProjectOption {
   project_id: string;
   project_title: string;
   role: 'owner' | 'member';
+  unread_count?: number;
 }
 
 export interface DirectChatOption {
@@ -45,6 +46,13 @@ export interface DirectChatOption {
   peer_name: string;
   last_message?: string;
   last_at?: string;
+  unread_count?: number;
+}
+
+export interface ChatUnreadSummary {
+  total: number;
+  projects: Record<string, number>;
+  direct: Record<string, number>;
 }
 
 export interface ProjectChatParticipant {
@@ -86,6 +94,99 @@ const loadHiddenPeerIds = async (userId: string): Promise<Set<string>> => {
     .select('peer_user_id')
     .eq('user_id', userId);
   return new Set((data || []).map((row) => row.peer_user_id as string));
+};
+
+export const markProjectChatRead = async (userId: string, projectId: string): Promise<void> => {
+  if (!isSupabaseConfigured) return;
+  await ensureAuthSession();
+  await supabase.from('user_project_chat_reads').upsert(
+    {
+      user_id: userId,
+      project_id: projectId,
+      last_read_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id,project_id' },
+  );
+};
+
+export const fetchChatUnreadSummary = async (userId: string): Promise<ChatUnreadSummary> => {
+  if (!isSupabaseConfigured) {
+    return { total: 0, projects: {}, direct: {} };
+  }
+
+  await ensureAuthSession();
+  const direct: Record<string, number> = {};
+
+  const { data: unreadDirect } = await withTimeout(
+    supabase
+      .from('direct_messages')
+      .select('sender_id')
+      .eq('recipient_id', userId)
+      .eq('is_read', false)
+      .limit(500),
+  ).catch(() => ({ data: [] as { sender_id: string }[] }));
+
+  for (const row of unreadDirect || []) {
+    direct[row.sender_id] = (direct[row.sender_id] || 0) + 1;
+  }
+
+  const hiddenProjects = await loadHiddenProjectIds(userId).catch(() => new Set<string>());
+  const hiddenPeers = await loadHiddenPeerIds(userId).catch(() => new Set<string>());
+
+  const { data: reads } = await supabase
+    .from('user_project_chat_reads')
+    .select('project_id, last_read_at')
+    .eq('user_id', userId);
+
+  const readMap = new Map((reads || []).map((r) => [r.project_id as string, r.last_read_at as string]));
+
+  const projects: Record<string, number> = {};
+  const [ownedRes, memberRes] = await Promise.all([
+    supabase.from('projects').select('id').eq('created_by', userId).limit(50),
+    supabase
+      .from('user_applications')
+      .select('project_id')
+      .eq('user_id', userId)
+      .eq('status', 'accepted')
+      .limit(50),
+  ]);
+
+  const projectIds = new Set<string>();
+  for (const row of ownedRes.data || []) {
+    const id = String(row.id);
+    if (!hiddenProjects.has(id)) projectIds.add(id);
+  }
+  for (const row of memberRes.data || []) {
+    if (row.project_id && !hiddenProjects.has(row.project_id)) {
+      projectIds.add(row.project_id);
+    }
+  }
+
+  await Promise.all(
+    [...projectIds].map(async (projectId) => {
+      const lastRead = readMap.get(projectId) || '1970-01-01T00:00:00.000Z';
+      const { count } = await supabase
+        .from('project_chat_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('project_id', projectId)
+        .neq('sender_id', userId)
+        .gt('created_at', lastRead);
+      if (count && count > 0) projects[projectId] = count;
+    }),
+  );
+
+  let directTotal = 0;
+  for (const [peerId, count] of Object.entries(direct)) {
+    if (!hiddenPeers.has(peerId)) directTotal += count;
+  }
+
+  const projectTotal = Object.values(projects).reduce((sum, n) => sum + n, 0);
+
+  return {
+    total: directTotal + projectTotal,
+    projects,
+    direct,
+  };
 };
 
 const profileName = (p: { full_name?: string | null; email?: string | null }) =>
@@ -229,7 +330,10 @@ export const hideProjectChat = async (
   return { ok: true };
 };
 
-export const fetchProjectMessages = async (projectId: string): Promise<ProjectChatMessage[]> => {
+export const fetchProjectMessages = async (
+  projectId: string,
+  userId?: string,
+): Promise<ProjectChatMessage[]> => {
   if (!isSupabaseConfigured) return [];
 
   await ensureAuthSession();
@@ -268,6 +372,10 @@ export const fetchProjectMessages = async (projectId: string): Promise<ProjectCh
     sender_name: profileMap.get(m.sender_id)?.name ?? 'Участник',
     sender_contact: profileMap.get(m.sender_id)?.contact ?? null,
   }));
+
+  if (userId) {
+    await markProjectChatRead(userId, projectId);
+  }
 
   return Promise.all(
     enriched.map(async (m) => ({

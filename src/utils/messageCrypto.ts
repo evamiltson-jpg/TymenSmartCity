@@ -9,7 +9,10 @@ const PBKDF2_ITERATIONS = 120_000;
 
 const getMasterSecret = (): string | null => {
   const raw = import.meta.env.VITE_MESSAGE_ENCRYPTION_KEY?.trim();
-  return raw || null;
+  if (!raw) return null;
+  // Allow quoted values in .env ("key=" or 'key=')
+  const unquoted = raw.replace(/^["']|["']$/g, '').trim();
+  return unquoted || null;
 };
 
 export const isMessageEncryptionEnabled = (): boolean => Boolean(getMasterSecret());

@@ -9,6 +9,7 @@ import {
   validateChatFile,
 } from '../../services/chatFileService';
 import {
+  fetchChatUnreadSummary,
   fetchDirectChats,
   fetchDirectMessages,
   fetchMyChatProjects,
@@ -19,6 +20,7 @@ import {
   sendDirectMessage,
   sendProjectMessage,
   unhideDirectChat,
+  type ChatUnreadSummary,
   type ChatProjectOption,
   type DirectChatOption,
   type DirectMessage,
@@ -114,10 +116,13 @@ const ChatAttachmentLink: React.FC<{
   );
 };
 
-export const ProjectMessenger: React.FC = () => {
+export const ProjectMessenger: React.FC<{
+  onUnreadChange?: (total: number) => void;
+}> = ({ onUnreadChange }) => {
   const { user } = useAuth();
   const [projects, setProjects] = useState<ChatProjectOption[]>([]);
   const [directChats, setDirectChats] = useState<DirectChatOption[]>([]);
+  const [unread, setUnread] = useState<ChatUnreadSummary>({ total: 0, projects: {}, direct: {} });
   const [selection, setSelection] = useState<MessengerSelection | null>(null);
   const [messages, setMessages] = useState<ProjectChatMessage[]>([]);
   const [directMessages, setDirectMessages] = useState<DirectMessage[]>([]);
@@ -134,12 +139,15 @@ export const ProjectMessenger: React.FC = () => {
 
   const reloadLists = async () => {
     if (!user) return;
-    const [projList, dmList] = await Promise.all([
+    const [projList, dmList, unreadSummary] = await Promise.all([
       fetchMyChatProjects(user.id),
       fetchDirectChats(user.id),
+      fetchChatUnreadSummary(user.id),
     ]);
     setProjects(projList);
     setDirectChats(dmList);
+    setUnread(unreadSummary);
+    onUnreadChange?.(unreadSummary.total);
     return { projList, dmList };
   };
 
@@ -173,17 +181,23 @@ export const ProjectMessenger: React.FC = () => {
     const load = async () => {
       if (selection.kind === 'project') {
         const [msgs, parts] = await Promise.all([
-          fetchProjectMessages(selection.projectId),
+          fetchProjectMessages(selection.projectId, user.id),
           fetchProjectParticipants(selection.projectId),
         ]);
         setMessages(msgs);
         setDirectMessages([]);
         setParticipants(parts);
+        const summary = await fetchChatUnreadSummary(user.id);
+        setUnread(summary);
+        onUnreadChange?.(summary.total);
       } else {
         const msgs = await fetchDirectMessages(user.id, selection.peerId);
         setDirectMessages(msgs);
         setMessages([]);
         setParticipants([]);
+        const summary = await fetchChatUnreadSummary(user.id);
+        setUnread(summary);
+        onUnreadChange?.(summary.total);
       }
     };
 
@@ -263,14 +277,14 @@ export const ProjectMessenger: React.FC = () => {
     if (selection.kind === 'project') {
       result = await sendProjectMessage(selection.projectId, user.id, textValue, attachment);
       if (result.ok) {
-        setMessages(await fetchProjectMessages(selection.projectId));
+        setMessages(await fetchProjectMessages(selection.projectId, user.id));
+        await reloadLists();
       }
     } else {
       result = await sendDirectMessage(user.id, selection.peerId, textValue, attachment);
       if (result.ok) {
         setDirectMessages(await fetchDirectMessages(user.id, selection.peerId));
-        const dmList = await fetchDirectChats(user.id);
-        setDirectChats(dmList);
+        await reloadLists();
       }
     }
 
@@ -354,7 +368,9 @@ export const ProjectMessenger: React.FC = () => {
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-2 py-1">
               Проекты
             </p>
-            {projects.map((p) => (
+            {projects.map((p) => {
+              const unreadCount = unread.projects[p.project_id] || 0;
+              return (
               <button
                 key={p.project_id}
                 type="button"
@@ -365,12 +381,20 @@ export const ProjectMessenger: React.FC = () => {
                     : 'text-gray-300 hover:bg-white/5 border border-transparent'
                 }`}
               >
-                <span className="font-bold block truncate">{p.project_title}</span>
+                <span className="font-bold block truncate flex items-center gap-2">
+                  <span className="truncate">{p.project_title}</span>
+                  {unreadCount > 0 && (
+                    <span className="shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-black">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </span>
                 <span className="text-[10px] uppercase text-gray-500">
                   {p.role === 'owner' ? 'Мой проект' : 'Участник'}
                 </span>
               </button>
-            ))}
+            );
+            })}
           </div>
         )}
 
@@ -379,7 +403,9 @@ export const ProjectMessenger: React.FC = () => {
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-2 py-1">
               Личные
             </p>
-            {directChats.map((c) => (
+            {directChats.map((c) => {
+              const unreadCount = unread.direct[c.peer_id] || 0;
+              return (
               <button
                 key={c.peer_id}
                 type="button"
@@ -390,12 +416,20 @@ export const ProjectMessenger: React.FC = () => {
                     : 'text-gray-300 hover:bg-white/5 border border-transparent'
                 }`}
               >
-                <span className="font-bold block truncate">{c.peer_name}</span>
+                <span className="font-bold block truncate flex items-center gap-2">
+                  <span className="truncate">{c.peer_name}</span>
+                  {unreadCount > 0 && (
+                    <span className="shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-black">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </span>
                 {c.last_message && (
                   <span className="text-[10px] text-gray-500 block truncate">{c.last_message}</span>
                 )}
               </button>
-            ))}
+            );
+            })}
           </div>
         )}
       </div>

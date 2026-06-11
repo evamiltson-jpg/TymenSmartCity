@@ -52,6 +52,7 @@ import { ITQuizModal } from './ITQuizModal';
 import { CreateProjectModal, CreateTeamModal, EditTeamModal } from './profile/ProfileCreateModals';
 import { ProfileSecuritySettings } from './profile/ProfileSecuritySettings';
 import { ProjectMessenger } from './profile/ProjectMessenger';
+import { fetchChatUnreadSummary } from '../services/projectChatService';
 import { getQuizMeta, getSkillLevel, parseSkillEntry, type QuizResultPayload } from '../utils/quizStorage';
 import { getScoreBarColor } from '../data/itQuiz';
 import { validateContactInfo } from '../utils/security';
@@ -132,6 +133,7 @@ export const ProfilePage: React.FC<{
   const [incomingApplications, setIncomingApplications] = useState<IncomingApplication[]>([]);
   const [acceptedMemberships, setAcceptedMemberships] = useState<Application[]>([]);
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const [reviewBusyId, setReviewBusyId] = useState<string | null>(null);
   const [projects, setProjects] = useState<UserProject[]>([]);
   const [submittedProjects, setSubmittedProjects] = useState<SubmittedProject[]>(() =>
@@ -299,10 +301,18 @@ export const ProfilePage: React.FC<{
   };
 
   useEffect(() => {
-    if (!user) return;
-    const cached = readSubmittedProjectsCache(user.id);
-    if (cached?.length) setSubmittedProjects(cached);
-  }, [user]);
+    if (!user || authLoading) return;
+
+    const refreshUnreadMessages = () => {
+      void fetchChatUnreadSummary(user.id)
+        .then((summary) => setUnreadMessagesCount(summary.total))
+        .catch(() => undefined);
+    };
+
+    refreshUnreadMessages();
+    const timer = window.setInterval(refreshUnreadMessages, 30_000);
+    return () => window.clearInterval(timer);
+  }, [user, authLoading, tab]);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -652,6 +662,11 @@ export const ProfilePage: React.FC<{
             {t === 'notifications' && unreadNotificationsCount > 0 && (
               <span className="ml-1 inline-flex min-w-[18px] h-[18px] px-1 items-center justify-center rounded-full bg-yellow-400 text-black text-[10px] font-black">
                 {unreadNotificationsCount}
+              </span>
+            )}
+            {t === 'messages' && unreadMessagesCount > 0 && (
+              <span className="ml-1 inline-flex min-w-[18px] h-[18px] px-1 items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-black">
+                {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
               </span>
             )}
           </button>
@@ -1226,7 +1241,7 @@ export const ProfilePage: React.FC<{
           <p className="text-sm text-gray-400">
             Мини-мессенджер для связи автора проекта с принятыми участниками.
           </p>
-          <ProjectMessenger />
+          <ProjectMessenger onUnreadChange={setUnreadMessagesCount} />
         </div>
       )}
 
