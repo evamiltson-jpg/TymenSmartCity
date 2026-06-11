@@ -28,7 +28,6 @@ import {
   type ProjectChatMessage,
   type ProjectChatParticipant,
 } from '../../services/projectChatService';
-import { ChatSecurityNotice } from './ChatSecurityNotice';
 import { messageCryptoScopes } from '../../utils/messageCrypto';
 import { validateChatMessage } from '../../utils/security';
 
@@ -360,7 +359,6 @@ export const ProjectMessenger: React.FC<{
 
   return (
     <div className="space-y-4">
-      <ChatSecurityNotice />
       <div className="messenger-panel grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 min-h-0">
       <div className="messenger-sidebar custom-scrollbar bg-[#122e41] rounded-2xl border border-white/5 p-3 space-y-3 overflow-y-auto min-h-0">
         {projects.length > 0 && (
