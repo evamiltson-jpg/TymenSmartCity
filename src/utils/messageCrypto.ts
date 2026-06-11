@@ -126,3 +126,27 @@ export const decryptMessageField = async (
   if (value == null || value === '') return value ?? null;
   return decryptMessage(value, scope);
 };
+
+export const encryptBytes = async (data: ArrayBuffer, scope: string): Promise<ArrayBuffer> => {
+  const key = await deriveAesKey(scope);
+  if (!key) return data;
+
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+  const payload = new Uint8Array(iv.length + new Uint8Array(ciphertext).length);
+  payload.set(iv);
+  payload.set(new Uint8Array(ciphertext), iv.length);
+  return payload.buffer;
+};
+
+export const decryptBytes = async (data: ArrayBuffer, scope: string): Promise<ArrayBuffer> => {
+  const key = await deriveAesKey(scope);
+  if (!key) return data;
+
+  const bytes = new Uint8Array(data);
+  if (bytes.length < 13) return data;
+
+  const iv = bytes.slice(0, 12);
+  const cipher = bytes.slice(12);
+  return crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+};

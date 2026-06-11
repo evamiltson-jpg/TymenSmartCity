@@ -1,6 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import {
+  downloadChatFile,
+  isImageMime,
+  openChatImage,
+  uploadDirectChatFile,
+  uploadProjectChatFile,
+  validateChatFile,
+} from '../../services/chatFileService';
+import {
   fetchDirectChats,
   fetchDirectMessages,
   fetchMyChatProjects,
@@ -19,7 +27,92 @@ import {
   type ProjectChatParticipant,
 } from '../../services/projectChatService';
 import { ChatSecurityNotice } from './ChatSecurityNotice';
+import { messageCryptoScopes } from '../../utils/messageCrypto';
 import { validateChatMessage } from '../../utils/security';
+
+type AttachmentFields = {
+  attachment_path?: string | null;
+  attachment_name?: string | null;
+  attachment_mime?: string | null;
+};
+
+const ChatAttachmentLink: React.FC<{
+  attachment: AttachmentFields;
+  scope: string;
+}> = ({ attachment, scope }) => {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!attachment.attachment_path || !isImageMime(attachment.attachment_mime)) return;
+    let cancelled = false;
+    setLoading(true);
+    openChatImage(
+      attachment.attachment_path,
+      scope,
+      attachment.attachment_mime || 'image/jpeg',
+    )
+      .then((url) => {
+        if (!cancelled) setPreviewUrl(url);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachment.attachment_path, attachment.attachment_mime, scope]);
+
+  if (!attachment.attachment_path || !attachment.attachment_name) return null;
+
+  const handleDownload = () => {
+    void downloadChatFile(
+      attachment.attachment_path!,
+      scope,
+      attachment.attachment_name!,
+      attachment.attachment_mime || 'application/octet-stream',
+    ).catch(() => undefined);
+  };
+
+  if (isImageMime(attachment.attachment_mime)) {
+    return (
+      <div className="mt-2 space-y-1">
+        {loading && <p className="text-[10px] text-gray-500">Загрузка...</p>}
+        {previewUrl && (
+          <button type="button" onClick={handleDownload} className="block max-w-full">
+            <img
+              src={previewUrl}
+              alt={attachment.attachment_name}
+              className="max-h-40 rounded-lg border border-white/10"
+            />
+          </button>
+        )}
+        {!previewUrl && !loading && (
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="text-xs underline text-sky-300"
+          >
+            📎 {attachment.attachment_name}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleDownload}
+      className="mt-2 text-xs underline text-sky-300 block text-left"
+    >
+      📎 {attachment.attachment_name}
+    </button>
+  );
+};
 
 export const ProjectMessenger: React.FC = () => {
   const { user } = useAuth();
@@ -34,8 +127,10 @@ export const ProjectMessenger: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reloadLists = async () => {
     if (!user) return;
@@ -119,27 +214,59 @@ export const ProjectMessenger: React.FC = () => {
       ? directChats.find((c) => c.peer_id === selection.peerId)
       : null;
 
+  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const validation = validateChatFile(file);
+    if (!validation.ok) {
+      setError(validation.error || 'Недопустимый файл');
+      return;
+    }
+    setPendingFile(file);
+    setError('');
+  };
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !selection || !draft.trim()) return;
+    if (!user || !selection) return;
+    if (!draft.trim() && !pendingFile) return;
 
-    const validation = validateChatMessage(draft);
-    if (!validation.ok) {
-      setError(validation.error || 'Недопустимое сообщение');
-      return;
+    let textValue = '';
+    if (draft.trim()) {
+      const validation = validateChatMessage(draft);
+      if (!validation.ok) {
+        setError(validation.error || 'Недопустимое сообщение');
+        return;
+      }
+      textValue = validation.value;
     }
 
     setSending(true);
     setError('');
 
+    let attachment;
+    if (pendingFile) {
+      const uploadResult =
+        selection.kind === 'project'
+          ? await uploadProjectChatFile(selection.projectId, user.id, pendingFile)
+          : await uploadDirectChatFile(user.id, selection.peerId, pendingFile);
+      if (!uploadResult.ok || !uploadResult.attachment) {
+        setSending(false);
+        setError(uploadResult.error || 'Не удалось загрузить файл');
+        return;
+      }
+      attachment = uploadResult.attachment;
+    }
+
     let result: { ok: boolean; error?: string };
     if (selection.kind === 'project') {
-      result = await sendProjectMessage(selection.projectId, user.id, validation.value);
+      result = await sendProjectMessage(selection.projectId, user.id, textValue, attachment);
       if (result.ok) {
         setMessages(await fetchProjectMessages(selection.projectId));
       }
     } else {
-      result = await sendDirectMessage(user.id, selection.peerId, validation.value);
+      result = await sendDirectMessage(user.id, selection.peerId, textValue, attachment);
       if (result.ok) {
         setDirectMessages(await fetchDirectMessages(user.id, selection.peerId));
         const dmList = await fetchDirectChats(user.id);
@@ -153,6 +280,7 @@ export const ProjectMessenger: React.FC = () => {
       return;
     }
     setDraft('');
+    setPendingFile(null);
   };
 
   const handleHideChat = async () => {
@@ -371,6 +499,12 @@ export const ProjectMessenger: React.FC = () => {
                       }`}
                     >
                       {msg.body}
+                      {msg.attachment_path && (
+                        <ChatAttachmentLink
+                          attachment={msg}
+                          scope={messageCryptoScopes.projectChat(selection.projectId)}
+                        />
+                      )}
                     </div>
                     {!isMine && msg.sender_contact && (
                       <p className="text-[10px] text-gray-500 mt-1 px-1 truncate max-w-full">
@@ -407,6 +541,12 @@ export const ProjectMessenger: React.FC = () => {
                     }`}
                   >
                     {msg.body}
+                    {msg.attachment_path && user && (
+                      <ChatAttachmentLink
+                        attachment={msg}
+                        scope={messageCryptoScopes.directChat(user.id, selection.peerId)}
+                      />
+                    )}
                   </div>
                   <span className="text-[9px] text-gray-600 mt-0.5 px-1">
                     {new Date(msg.created_at).toLocaleString('ru-RU', {
@@ -429,22 +569,52 @@ export const ProjectMessenger: React.FC = () => {
         {selection && (
           <form
             onSubmit={handleSend}
-            className="flex-none p-3 border-t border-white/10 flex gap-2"
+            className="flex-none p-3 border-t border-white/10 space-y-2"
           >
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Сообщение..."
-              className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-yellow-400"
-              maxLength={1000}
-            />
-            <button
-              type="submit"
-              disabled={sending || !draft.trim()}
-              className="px-4 py-2.5 bg-yellow-400 hover:bg-yellow-500 disabled:opacity-50 text-black font-bold rounded-xl text-sm"
-            >
-              {sending ? '...' : '→'}
-            </button>
+            {pendingFile && (
+              <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-gray-300">
+                <span className="truncate">📎 {pendingFile.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setPendingFile(null)}
+                  className="text-rose-400 font-bold shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                className="hidden"
+                onChange={handleFilePick}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending}
+                className="px-3 py-2.5 rounded-xl border border-white/10 text-gray-300 hover:bg-white/5 disabled:opacity-50"
+                title="Прикрепить JPG, PNG, WebP или PDF (до 5 МБ)"
+              >
+                📎
+              </button>
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Сообщение..."
+                className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-yellow-400"
+                maxLength={1000}
+              />
+              <button
+                type="submit"
+                disabled={sending || (!draft.trim() && !pendingFile)}
+                className="px-4 py-2.5 bg-yellow-400 hover:bg-yellow-500 disabled:opacity-50 text-black font-bold rounded-xl text-sm"
+              >
+                {sending ? '...' : '→'}
+              </button>
+            </div>
           </form>
         )}
       </div>

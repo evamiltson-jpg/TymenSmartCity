@@ -6,6 +6,7 @@ import {
   messageCryptoScopes,
 } from '../utils/messageCrypto';
 import { sanitizeChatInput } from '../utils/security';
+import type { ChatAttachmentMeta } from './chatFileService';
 
 export interface ProjectChatMessage {
   id: string;
@@ -13,6 +14,9 @@ export interface ProjectChatMessage {
   sender_id: string;
   body: string;
   created_at: string;
+  attachment_path?: string | null;
+  attachment_name?: string | null;
+  attachment_mime?: string | null;
   sender_name?: string;
   sender_contact?: string | null;
 }
@@ -24,6 +28,9 @@ export interface DirectMessage {
   body: string;
   is_read: boolean;
   created_at: string;
+  attachment_path?: string | null;
+  attachment_name?: string | null;
+  attachment_mime?: string | null;
   sender_name?: string;
 }
 
@@ -198,9 +205,19 @@ export const hideProjectChat = async (
   if (!isSupabaseConfigured) return { ok: false, error: 'Supabase не настроен.' };
 
   await ensureAuthSession();
+  const { error: delError } = await supabase
+    .from('user_hidden_project_chats')
+    .delete()
+    .eq('user_id', userId)
+    .eq('project_id', projectId);
+
+  if (delError && !/relation.*does not exist/i.test(delError.message)) {
+    return { ok: false, error: delError.message };
+  }
+
   const { error } = await supabase
     .from('user_hidden_project_chats')
-    .upsert({ user_id: userId, project_id: projectId });
+    .insert({ user_id: userId, project_id: projectId });
 
   if (error) {
     if (/relation.*does not exist/i.test(error.message)) {
@@ -219,7 +236,7 @@ export const fetchProjectMessages = async (projectId: string): Promise<ProjectCh
   const { data, error } = await withTimeout(
     supabase
       .from('project_chat_messages')
-      .select('id, project_id, sender_id, body, created_at')
+      .select('id, project_id, sender_id, body, attachment_path, attachment_name, attachment_mime, created_at')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true })
       .limit(200),
@@ -264,16 +281,20 @@ export const sendProjectMessage = async (
   projectId: string,
   senderId: string,
   body: string,
+  attachment?: ChatAttachmentMeta,
 ): Promise<{ ok: boolean; message?: ProjectChatMessage; error?: string }> => {
   if (!isSupabaseConfigured) {
     return { ok: false, error: 'Supabase не настроен.' };
   }
 
-  const trimmed = sanitizeChatInput(body);
-  if (!trimmed) return { ok: false, error: 'Введите сообщение.' };
+  const trimmed = sanitizeChatInput(body, 1000);
+  if (!trimmed && !attachment) {
+    return { ok: false, error: 'Введите сообщение или прикрепите файл.' };
+  }
 
+  const plainBody = trimmed || `📎 ${attachment?.name || 'файл'}`;
   const encryptedBody = await encryptMessage(
-    trimmed,
+    plainBody,
     messageCryptoScopes.projectChat(projectId),
   );
 
@@ -281,8 +302,15 @@ export const sendProjectMessage = async (
   const { data, error } = await withTimeout(
     supabase
       .from('project_chat_messages')
-      .insert({ project_id: projectId, sender_id: senderId, body: encryptedBody })
-      .select('id, project_id, sender_id, body, created_at')
+      .insert({
+        project_id: projectId,
+        sender_id: senderId,
+        body: encryptedBody,
+        attachment_path: attachment?.path ?? null,
+        attachment_name: attachment?.name ?? null,
+        attachment_mime: attachment?.mime ?? null,
+      })
+      .select('id, project_id, sender_id, body, attachment_path, attachment_name, attachment_mime, created_at')
       .single(),
   );
 
@@ -298,7 +326,7 @@ export const sendProjectMessage = async (
     ok: true,
     message: {
       ...row,
-      body: trimmed,
+      body: plainBody,
     },
   };
 };
@@ -312,7 +340,7 @@ export const fetchDirectChats = async (userId: string): Promise<DirectChatOption
   const { data, error } = await withTimeout(
     supabase
       .from('direct_messages')
-      .select('id, sender_id, recipient_id, body, created_at')
+      .select('id, sender_id, recipient_id, body, attachment_path, attachment_name, attachment_mime, created_at')
       .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
       .order('created_at', { ascending: false })
       .limit(200),
@@ -366,7 +394,7 @@ export const fetchDirectMessages = async (
   const { data, error } = await withTimeout(
     supabase
       .from('direct_messages')
-      .select('id, sender_id, recipient_id, body, is_read, created_at')
+      .select('id, sender_id, recipient_id, body, attachment_path, attachment_name, attachment_mime, is_read, created_at')
       .or(
         `and(sender_id.eq.${userId},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${userId})`,
       )
@@ -399,15 +427,19 @@ export const sendDirectMessage = async (
   userId: string,
   peerId: string,
   body: string,
+  attachment?: ChatAttachmentMeta,
 ): Promise<{ ok: boolean; error?: string }> => {
   if (!isSupabaseConfigured) return { ok: false, error: 'Supabase не настроен.' };
   if (userId === peerId) return { ok: false, error: 'Нельзя написать самому себе.' };
 
-  const trimmed = sanitizeChatInput(body);
-  if (!trimmed) return { ok: false, error: 'Введите сообщение.' };
+  const trimmed = sanitizeChatInput(body, 1000);
+  if (!trimmed && !attachment) {
+    return { ok: false, error: 'Введите сообщение или прикрепите файл.' };
+  }
 
+  const plainBody = trimmed || `📎 ${attachment?.name || 'файл'}`;
   const encryptedBody = await encryptMessage(
-    trimmed,
+    plainBody,
     messageCryptoScopes.directChat(userId, peerId),
   );
 
@@ -423,6 +455,9 @@ export const sendDirectMessage = async (
     sender_id: userId,
     recipient_id: peerId,
     body: encryptedBody,
+    attachment_path: attachment?.path ?? null,
+    attachment_name: attachment?.name ?? null,
+    attachment_mime: attachment?.mime ?? null,
   });
 
   if (error) {
@@ -442,9 +477,15 @@ export const hideDirectChat = async (
   if (!isSupabaseConfigured) return { ok: false, error: 'Supabase не настроен.' };
 
   await ensureAuthSession();
+  await supabase
+    .from('user_hidden_direct_chats')
+    .delete()
+    .eq('user_id', userId)
+    .eq('peer_user_id', peerId);
+
   const { error } = await supabase
     .from('user_hidden_direct_chats')
-    .upsert({ user_id: userId, peer_user_id: peerId });
+    .insert({ user_id: userId, peer_user_id: peerId });
 
   if (error) {
     if (/relation.*does not exist/i.test(error.message)) {
