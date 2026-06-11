@@ -133,8 +133,19 @@ export const ProjectMessenger: React.FC<{
   const [sending, setSending] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [error, setError] = useState('');
+  const [mobileShowChat, setMobileShowChat] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const openChat = (next: MessengerSelection) => {
+    setSelection(next);
+    setMobileShowChat(true);
+  };
+
+  const backToChatList = () => {
+    setMobileShowChat(false);
+    setShowParticipants(false);
+  };
 
   const reloadLists = async () => {
     if (!user) return;
@@ -160,6 +171,7 @@ export const ProjectMessenger: React.FC<{
         } else if (dmList.length > 0) {
           setSelection({ kind: 'direct', peerId: dmList[0].peer_id });
         }
+        setMobileShowChat(false);
       })
       .catch(() => setError('Не удалось загрузить чаты'))
       .finally(() => setLoading(false));
@@ -315,6 +327,7 @@ export const ProjectMessenger: React.FC<{
     }
 
     const { projList, dmList } = await reloadLists();
+    setMobileShowChat(false);
     if (projList.length > 0) {
       setSelection({ kind: 'project', projectId: projList[0].project_id });
     } else if (dmList.length > 0) {
@@ -333,7 +346,7 @@ export const ProjectMessenger: React.FC<{
       return [{ peer_id: peerId, peer_name: peerName || 'Участник' }, ...prev];
     });
 
-    setSelection({ kind: 'direct', peerId });
+    openChat({ kind: 'direct', peerId });
     setShowParticipants(false);
   };
 
@@ -359,8 +372,13 @@ export const ProjectMessenger: React.FC<{
 
   return (
     <div className="space-y-4">
-      <div className="messenger-panel grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 min-h-0">
-      <div className="messenger-sidebar custom-scrollbar bg-[#122e41] rounded-2xl border border-white/5 p-3 space-y-3 overflow-y-auto min-h-0">
+      <div className="messenger-panel grid grid-cols-1 lg:grid-cols-[minmax(0,240px)_1fr] gap-3 lg:gap-4 min-h-0">
+      <div
+        className={`messenger-sidebar custom-scrollbar bg-[#122e41] rounded-2xl border border-white/5 p-3 space-y-3 overflow-y-auto min-h-0 flex flex-col ${
+          mobileShowChat ? 'hidden lg:flex' : 'flex'
+        }`}
+      >
+        <p className="lg:hidden text-sm font-bold text-white px-2 pb-1">Чаты</p>
         {projects.length > 0 && (
           <div className="space-y-1">
             <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 px-2 py-1">
@@ -372,8 +390,8 @@ export const ProjectMessenger: React.FC<{
               <button
                 key={p.project_id}
                 type="button"
-                onClick={() => setSelection({ kind: 'project', projectId: p.project_id })}
-                className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors ${
+                onClick={() => openChat({ kind: 'project', projectId: p.project_id })}
+                className={`w-full text-left px-3 py-3 rounded-xl text-sm transition-colors active:scale-[0.99] ${
                   selection?.kind === 'project' && selection.projectId === p.project_id
                     ? 'bg-yellow-400/15 text-yellow-400 border border-yellow-400/30'
                     : 'text-gray-300 hover:bg-white/5 border border-transparent'
@@ -407,8 +425,8 @@ export const ProjectMessenger: React.FC<{
               <button
                 key={c.peer_id}
                 type="button"
-                onClick={() => setSelection({ kind: 'direct', peerId: c.peer_id })}
-                className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors ${
+                onClick={() => openChat({ kind: 'direct', peerId: c.peer_id })}
+                className={`w-full text-left px-3 py-3 rounded-xl text-sm transition-colors active:scale-[0.99] ${
                   selection?.kind === 'direct' && selection.peerId === c.peer_id
                     ? 'bg-sky-400/15 text-sky-300 border border-sky-400/30'
                     : 'text-gray-300 hover:bg-white/5 border border-transparent'
@@ -432,36 +450,54 @@ export const ProjectMessenger: React.FC<{
         )}
       </div>
 
-      <div className="messenger-chat bg-[#122e41] rounded-2xl border border-white/5 flex flex-col min-h-0 overflow-hidden">
-        <div className="flex-none px-4 py-3 border-b border-white/10 flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="font-bold text-white truncate">{headerTitle || 'Выберите чат'}</h3>
-            <p className="text-xs text-gray-500 truncate">
-              {selection?.kind === 'project'
-                ? 'Командный чат проекта'
-                : selection?.kind === 'direct'
-                  ? 'Личная переписка'
-                  : '—'}
-            </p>
+      <div
+        className={`messenger-chat bg-[#122e41] rounded-2xl border border-white/5 flex-col min-h-0 overflow-hidden ${
+          mobileShowChat ? 'flex' : 'hidden lg:flex'
+        }`}
+      >
+        <div className="flex-none px-3 sm:px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={backToChatList}
+              className="lg:hidden shrink-0 w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 text-gray-300 hover:bg-white/5"
+              aria-label="Назад к списку чатов"
+            >
+              ←
+            </button>
+            <div className="min-w-0">
+              <h3 className="font-bold text-white truncate text-sm sm:text-base">
+                {headerTitle || 'Выберите чат'}
+              </h3>
+              <p className="text-[10px] sm:text-xs text-gray-500 truncate">
+                {selection?.kind === 'project'
+                  ? 'Командный чат'
+                  : selection?.kind === 'direct'
+                    ? 'Личные сообщения'
+                    : '—'}
+              </p>
+            </div>
           </div>
           {selection && (
-            <div className="flex shrink-0 gap-2">
+            <div className="flex shrink-0 gap-1.5 sm:gap-2">
               {selection.kind === 'project' && (
                 <button
                   type="button"
                   onClick={() => setShowParticipants((v) => !v)}
-                  className="px-2.5 py-1.5 text-[10px] font-bold uppercase rounded-lg border border-white/10 text-gray-300 hover:bg-white/5"
+                  className="px-2 sm:px-2.5 py-1.5 text-[10px] font-bold uppercase rounded-lg border border-white/10 text-gray-300 hover:bg-white/5"
                 >
-                  Участники ({participants.length})
+                  <span className="hidden sm:inline">Участники ({participants.length})</span>
+                  <span className="sm:hidden">👥 {participants.length}</span>
                 </button>
               )}
               <button
                 type="button"
                 onClick={() => void handleHideChat()}
-                className="px-2.5 py-1.5 text-[10px] font-bold uppercase rounded-lg border border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
+                className="px-2 sm:px-2.5 py-1.5 text-[10px] font-bold uppercase rounded-lg border border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
                 title="Скрыть чат из списка"
               >
-                Скрыть
+                <span className="hidden sm:inline">Скрыть</span>
+                <span className="sm:hidden">✕</span>
               </button>
             </div>
           )}
@@ -499,10 +535,10 @@ export const ProjectMessenger: React.FC<{
 
         <div
           ref={scrollRef}
-          className="custom-scrollbar flex-1 min-h-0 overflow-y-auto p-4 space-y-3"
+          className="custom-scrollbar flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-3 overscroll-contain"
         >
           {!selection ? (
-            <p className="text-gray-500 text-sm text-center py-8">Выберите чат слева</p>
+            <p className="text-gray-500 text-sm text-center py-8">Выберите чат из списка</p>
           ) : loadingMessages ? (
             <p className="text-gray-500 text-sm">Загрузка...</p>
           ) : selection.kind === 'project' ? (
@@ -516,7 +552,7 @@ export const ProjectMessenger: React.FC<{
                 return (
                   <div
                     key={msg.id}
-                    className={`flex flex-col max-w-[85%] ${isMine ? 'ml-auto items-end' : 'items-start'}`}
+                    className={`flex flex-col max-w-[92%] sm:max-w-[85%] ${isMine ? 'ml-auto items-end' : 'items-start'}`}
                   >
                     {!isMine && (
                       <span className="text-[10px] text-yellow-400/80 font-bold mb-0.5 px-1">
@@ -563,7 +599,7 @@ export const ProjectMessenger: React.FC<{
               return (
                 <div
                   key={msg.id}
-                  className={`flex flex-col max-w-[85%] ${isMine ? 'ml-auto items-end' : 'items-start'}`}
+                  className={`flex flex-col max-w-[92%] sm:max-w-[85%] ${isMine ? 'ml-auto items-end' : 'items-start'}`}
                 >
                   <div
                     className={`px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words ${
@@ -601,7 +637,7 @@ export const ProjectMessenger: React.FC<{
         {selection && (
           <form
             onSubmit={handleSend}
-            className="flex-none p-3 border-t border-white/10 space-y-2"
+            className="messenger-compose flex-none p-2 sm:p-3 border-t border-white/10 space-y-2"
           >
             {pendingFile && (
               <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-gray-300">
@@ -627,7 +663,7 @@ export const ProjectMessenger: React.FC<{
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={sending}
-                className="px-3 py-2.5 rounded-xl border border-white/10 text-gray-300 hover:bg-white/5 disabled:opacity-50"
+                className="shrink-0 w-11 h-11 flex items-center justify-center rounded-xl border border-white/10 text-gray-300 hover:bg-white/5 disabled:opacity-50"
                 title="Прикрепить JPG, PNG, WebP или PDF (до 5 МБ)"
               >
                 📎
@@ -636,13 +672,13 @@ export const ProjectMessenger: React.FC<{
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Сообщение..."
-                className="flex-1 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-yellow-400"
+                className="messenger-input flex-1 min-w-0 px-3 sm:px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-yellow-400"
                 maxLength={1000}
               />
               <button
                 type="submit"
                 disabled={sending || (!draft.trim() && !pendingFile)}
-                className="px-4 py-2.5 bg-yellow-400 hover:bg-yellow-500 disabled:opacity-50 text-black font-bold rounded-xl text-sm"
+                className="shrink-0 w-11 h-11 flex items-center justify-center bg-yellow-400 hover:bg-yellow-500 disabled:opacity-50 text-black font-bold rounded-xl text-sm"
               >
                 {sending ? '...' : '→'}
               </button>

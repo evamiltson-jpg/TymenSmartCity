@@ -105,6 +105,32 @@
       height: min(78vh, 640px);
       max-height: none;
     }
+
+    .messenger-panel {
+      height: min(calc(100dvh - 11rem), calc(100svh - 11rem));
+      max-height: none;
+      min-height: min(420px, calc(100dvh - 11rem));
+    }
+
+    .messenger-sidebar {
+      max-height: none;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .messenger-chat {
+      height: 100%;
+      max-height: none;
+      min-height: 0;
+    }
+
+    .messenger-compose {
+      padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+    }
+
+    .messenger-input {
+      font-size: 16px;
+    }
   }
 
   @media (min-width: 1024px) {

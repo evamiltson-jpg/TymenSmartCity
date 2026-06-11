@@ -1243,11 +1243,13 @@ export const ProfilePage: React.FC<{
       )}
 
       {tab === 'messages' && (
-        <div className="space-y-6">
-          <h2 className="text-2xl font-bold text-white">Сообщения по проектам</h2>
-          <p className="text-sm text-gray-400">
-            Мини-мессенджер для связи автора проекта с принятыми участниками.
-          </p>
+        <div className="space-y-4 sm:space-y-6">
+          <div className="hidden sm:block">
+            <h2 className="text-2xl font-bold text-white">Сообщения по проектам</h2>
+            <p className="text-sm text-gray-400 mt-1">
+              Мини-мессенджер для связи автора проекта с принятыми участниками.
+            </p>
+          </div>
           <ProjectMessenger onUnreadChange={setUnreadMessagesCount} />
         </div>
       )}
