@@ -27,12 +27,17 @@ import {
   type SubmittedProject,
 } from '../../services/projectService';
 import {
-  archiveAndReset,
-  deleteArchive,
+  emptyProshaState,
+  fetchProshaChat,
+  saveProshaChat,
+} from '../../services/proshaChatService';
+import {
+  archiveAndResetState,
+  deleteArchiveState,
   getLocalDayKey,
   getSessionLimitHint,
-  loadChatState,
-  saveChatState,
+  loadGuestChatState,
+  saveGuestChatState,
   type StoredChatMessage,
 } from '../../utils/chatStorage';
 import { moderateUserMessage } from '../../utils/chatModeration';
@@ -44,14 +49,6 @@ import {
 } from '../../utils/proshaSuggestions';
 import { resolveEventLink, resolveProjectCard } from '../../utils/resolveAiCard';
 import { ProshaProposalCard } from './ProshaProposalCard';
-
-const BRIEF_KEY = 'project_assistant_brief_v2';
-const CHAT_KEY = 'prosha_chat_v1';
-
-const WELCOME: StoredChatMessage = {
-  role: 'ai',
-  text: `Привет! Я ${ASSISTANT_NAME} — помогу с идеей, планом, командой и конкурсами.\n\nПривяжите проект из профиля или просто задайте вопрос.`,
-};
 
 const STAGE_OPTIONS: { value: ProjectBrief['stage']; label: string }[] = [
   { value: 'idea', label: 'Идея' },
@@ -69,24 +66,6 @@ const parseTechnologies = (value: string) =>
     .filter(Boolean)
     .slice(0, 12);
 
-const defaultBrief: ProjectBrief = {
-  linkedProjectId: null,
-  title: '',
-  description: '',
-  stage: 'idea',
-  technologies: [],
-};
-
-function loadBrief(): ProjectBrief {
-  try {
-    const raw = localStorage.getItem(BRIEF_KEY);
-    if (raw) return { ...defaultBrief, ...JSON.parse(raw) };
-  } catch {
-    /* ignore */
-  }
-  return { ...defaultBrief };
-}
-
 interface ChatMessage extends StoredChatMessage {
   proposals?: ProshaProposal[];
   dismissedProposals?: boolean;
@@ -94,17 +73,20 @@ interface ChatMessage extends StoredChatMessage {
 
 export const ProjectAssistant: React.FC = () => {
   const { user, isAuthenticated } = useAuth();
-  const chatInit = loadChatState(CHAT_KEY, WELCOME);
+  const emptyState = emptyProshaState();
 
-  const [brief, setBrief] = useState<ProjectBrief>(loadBrief);
+  const [brief, setBrief] = useState<ProjectBrief>(emptyState.brief);
   const [linkedDetail, setLinkedDetail] = useState<MyProjectDetail | null>(null);
   const [myProjects, setMyProjects] = useState<SubmittedProject[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [linkingProject, setLinkingProject] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>(chatInit.messages);
-  const [archives, setArchives] = useState(chatInit.archives);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [archives, setArchives] = useState(emptyState.archives);
   const [viewArchiveId, setViewArchiveId] = useState<string | null>(null);
-  const [sessionCount, setSessionCount] = useState(chatInit.sessionCount);
+  const [sessionCount, setSessionCount] = useState(0);
+  const [chatReady, setChatReady] = useState(false);
+  const [chatLoading, setChatLoading] = useState(true);
+  const [mobileTab, setMobileTab] = useState<'chat' | 'project'>('chat');
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [savingProposal, setSavingProposal] = useState(false);
@@ -114,6 +96,8 @@ export const ProjectAssistant: React.FC = () => {
   const [timelinePreview, setTimelinePreview] = useState<{ week: string; title: string }[]>([]);
   const [eventsContext, setEventsContext] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const activeUserIdRef = useRef<string | null>(null);
+  const sessionDayRef = useRef(getLocalDayKey());
 
   const displayedMessages = viewArchiveId
     ? (archives.find((a) => a.id === viewArchiveId)?.messages as ChatMessage[]) ?? messages
@@ -122,32 +106,110 @@ export const ProjectAssistant: React.FC = () => {
   const sessionLimitReached = !viewArchiveId && sessionCount >= MAX_SESSION_MESSAGES;
 
   useEffect(() => {
-    localStorage.setItem(BRIEF_KEY, JSON.stringify(brief));
-  }, [brief]);
+    let cancelled = false;
 
-  useEffect(() => {
-    if (!viewArchiveId) {
-      saveChatState(CHAT_KEY, { messages, sessionCount, archives, sessionDay: getLocalDayKey() });
-    }
-  }, [messages, sessionCount, archives, viewArchiveId]);
+    const applyEmpty = () => {
+      const empty = emptyProshaState();
+      setMessages(empty.messages);
+      setArchives(empty.archives);
+      setSessionCount(empty.sessionCount);
+      setBrief(empty.brief);
+      setTimelinePreview(empty.timeline);
+      setViewArchiveId(null);
+    };
 
-  useEffect(() => {
-    const tick = () => {
-      const today = getLocalDayKey();
-      const raw = localStorage.getItem(CHAT_KEY);
-      if (!raw) return;
+    const loadChat = async () => {
+      setChatLoading(true);
+      setChatReady(false);
+
+      if (!user?.id) {
+        activeUserIdRef.current = null;
+        const guest = loadGuestChatState();
+        if (cancelled) return;
+        setMessages(guest.messages as ChatMessage[]);
+        setArchives(guest.archives);
+        setSessionCount(guest.sessionCount);
+        setBrief(emptyProshaState().brief);
+        setTimelinePreview([]);
+        setViewArchiveId(null);
+        sessionDayRef.current = guest.sessionDay ?? getLocalDayKey();
+        setChatLoading(false);
+        setChatReady(true);
+        return;
+      }
+
+      activeUserIdRef.current = user.id;
       try {
-        const parsed = JSON.parse(raw) as { sessionDay?: string };
-        if (parsed.sessionDay && parsed.sessionDay !== today) {
-          setSessionCount(0);
+        const data = await fetchProshaChat(user.id);
+        if (cancelled) return;
+        if (data) {
+          setMessages(data.messages as ChatMessage[]);
+          setArchives(data.archives);
+          setSessionCount(data.sessionCount);
+          setBrief(data.brief);
+          setTimelinePreview(data.timeline);
+          sessionDayRef.current = data.sessionDay ?? getLocalDayKey();
+        } else {
+          applyEmpty();
+          sessionDayRef.current = getLocalDayKey();
         }
+        setViewArchiveId(null);
       } catch {
-        /* ignore */
+        if (!cancelled) applyEmpty();
+      } finally {
+        if (!cancelled) {
+          setChatLoading(false);
+          setChatReady(true);
+        }
       }
     };
-    const id = window.setInterval(tick, 60_000);
+
+    loadChat();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!chatReady || viewArchiveId) return;
+
+    if (!user?.id) {
+      saveGuestChatState({
+        messages,
+        sessionCount,
+        archives,
+        sessionDay: getLocalDayKey(),
+      });
+      return;
+    }
+
+    const userId = user.id;
+    const timer = window.setTimeout(() => {
+      if (activeUserIdRef.current !== userId) return;
+      saveProshaChat(userId, {
+        messages,
+        sessionCount,
+        archives,
+        sessionDay: getLocalDayKey(),
+        brief,
+        timeline: timelinePreview,
+      }).catch(() => undefined);
+    }, 700);
+
+    return () => window.clearTimeout(timer);
+  }, [messages, sessionCount, archives, brief, timelinePreview, user?.id, chatReady, viewArchiveId]);
+
+  useEffect(() => {
+    if (!chatReady) return;
+    const id = window.setInterval(() => {
+      const today = getLocalDayKey();
+      if (sessionDayRef.current !== today) {
+        sessionDayRef.current = today;
+        setSessionCount(0);
+      }
+    }, 60_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [chatReady]);
 
   useEffect(() => {
     buildEventsContext().then(setEventsContext).catch(() => setEventsContext(''));
@@ -335,7 +397,7 @@ export const ProjectAssistant: React.FC = () => {
   };
 
   const deleteArchiveChat = (archiveId: string) => {
-    const next = deleteArchive(CHAT_KEY, archiveId, { messages, sessionCount, archives });
+    const next = deleteArchiveState(archiveId, { messages, sessionCount, archives });
     setArchives(next.archives);
     if (viewArchiveId === archiveId) setViewArchiveId(null);
   };
@@ -411,7 +473,7 @@ export const ProjectAssistant: React.FC = () => {
       const msg = err instanceof Error ? err.message : 'Неизвестная ошибка';
       const isRateLimit = /лимит|rate limit|Groq|Gemini|подождите|ИИ временно/i.test(msg);
       if (isRateLimit) {
-        setSessionCount(sessionCount);
+        setSessionCount((c) => Math.max(0, c - 1));
       }
       const text = isRateLimit
         ? `[ИИ временно недоступен]\n${msg}`
@@ -423,12 +485,18 @@ export const ProjectAssistant: React.FC = () => {
   };
 
   const resetSession = () => {
-    const next = archiveAndReset(CHAT_KEY, WELCOME, { messages, sessionCount, archives });
-    setMessages(next.messages);
+    const next = archiveAndResetState(null, {
+      messages,
+      sessionCount,
+      archives,
+      sessionDay: getLocalDayKey(),
+    });
+    setMessages(next.messages as ChatMessage[]);
     setArchives(next.archives);
     setSessionCount(0);
     setViewArchiveId(null);
     setTimelinePreview([]);
+    setMobileTab('chat');
   };
 
   const addTech = () => {
@@ -499,8 +567,8 @@ export const ProjectAssistant: React.FC = () => {
           <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/5 via-transparent to-sky-500/5" />
         </div>
 
-        <div className="relative p-8 md:p-14">
-          <div className="mb-10 text-center">
+        <div className="relative p-4 sm:p-8 md:p-14">
+          <div className="mb-6 text-center md:mb-10">
             <div className="mb-4 inline-flex items-center rounded-full border border-yellow-400/20 bg-yellow-400/10 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-yellow-400">
               {ASSISTANT_NAME} · консультант по проекту
             </div>
@@ -511,9 +579,38 @@ export const ProjectAssistant: React.FC = () => {
             </p>
           </div>
 
-          <div className="prosha-panel grid min-h-0 grid-cols-1 gap-6 overflow-hidden lg:grid-cols-12 lg:grid-rows-1 lg:items-stretch">
-            <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden lg:col-span-4">
-              <div className="custom-scrollbar-field min-h-0 max-h-[52%] shrink-0 overflow-y-auto rounded-[28px] border border-white/10 bg-[#122e41]/80 p-6 backdrop-blur-md">
+          <div className="mb-4 flex gap-2 lg:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileTab('chat')}
+              className={`flex-1 rounded-xl py-2.5 text-xs font-black uppercase tracking-widest transition-colors ${
+                mobileTab === 'chat'
+                  ? 'bg-yellow-400 text-black'
+                  : 'border border-white/10 bg-white/5 text-gray-400'
+              }`}
+            >
+              Чат
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileTab('project')}
+              className={`flex-1 rounded-xl py-2.5 text-xs font-black uppercase tracking-widest transition-colors ${
+                mobileTab === 'project'
+                  ? 'bg-yellow-400 text-black'
+                  : 'border border-white/10 bg-white/5 text-gray-400'
+              }`}
+            >
+              Проект
+            </button>
+          </div>
+
+          <div className="prosha-panel grid min-h-0 grid-cols-1 gap-4 overflow-hidden sm:gap-6 lg:grid-cols-12 lg:grid-rows-1 lg:items-stretch">
+            <div
+              className={`h-full min-h-0 flex-col gap-4 overflow-hidden lg:col-span-4 ${
+                mobileTab === 'project' ? 'flex' : 'hidden lg:flex'
+              }`}
+            >
+              <div className="custom-scrollbar-field min-h-0 max-h-[45%] shrink-0 overflow-y-auto rounded-[28px] border border-white/10 bg-[#122e41]/80 p-4 backdrop-blur-md sm:max-h-[52%] sm:p-6">
                 <h3 className="mb-4 text-xs font-black uppercase tracking-widest text-yellow-400">
                   Ваш проект
                 </h3>
@@ -680,15 +777,24 @@ export const ProjectAssistant: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex h-full min-h-0 flex-col overflow-hidden lg:col-span-8">
+            <div
+              className={`h-full min-h-0 flex-col overflow-hidden lg:col-span-8 ${
+                mobileTab === 'chat' ? 'flex' : 'hidden lg:flex'
+              }`}
+            >
               <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#0f2536]/90 backdrop-blur-md">
-                <div className="flex-none border-b border-white/5 px-4 py-3">
-                  <div className="flex flex-wrap gap-2">
+                <div className="flex-none border-b border-white/5 px-3 py-2.5 sm:px-4 sm:py-3">
+                  {!isAuthenticated && (
+                    <p className="mb-2 text-center text-[10px] leading-snug text-yellow-400/80">
+                      Войдите в аккаунт — история чата сохранится только у вас.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2">
                     {PROJECT_QUICK_PROMPTS.map((q) => (
                       <button
                         key={q.id}
                         type="button"
-                        disabled={loading || sessionLimitReached || !!viewArchiveId}
+                        disabled={loading || chatLoading || sessionLimitReached || !!viewArchiveId}
                         onClick={() => sendMessage(q.userText, { apiMessage: q.apiPrompt })}
                         className="rounded-xl border border-white/10 bg-[#122e41]/80 px-3 py-1.5 text-[11px] font-bold text-gray-300 transition-all hover:border-yellow-400/30 hover:bg-yellow-400/10 hover:text-yellow-300 disabled:opacity-40"
                       >
@@ -738,7 +844,23 @@ export const ProjectAssistant: React.FC = () => {
                   </div>
                 )}
 
-                <div ref={scrollRef} className="custom-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+                <div ref={scrollRef} className="custom-scrollbar flex min-h-0 flex-1 flex-col space-y-4 overflow-y-auto p-3 sm:p-5">
+                  {chatLoading && (
+                    <div className="flex flex-1 items-center justify-center py-12 text-xs text-gray-500">
+                      Загрузка вашего чата...
+                    </div>
+                  )}
+                  {!chatLoading && displayedMessages.length === 0 && !loading && (
+                    <div className="flex flex-1 flex-col items-center justify-center px-4 py-8 text-center text-gray-500">
+                      <p className="text-sm text-white/85">
+                        Здравствуйте! Я {ASSISTANT_NAME} — помогу с идеей, планом, командой и конкурсами.
+                      </p>
+                      <p className="mt-2 max-w-sm text-xs leading-relaxed">
+                        Напишите вопрос или выберите подсказку выше. Привяжите проект во вкладке «Проект» — советы
+                        станут точнее.
+                      </p>
+                    </div>
+                  )}
                   {displayedMessages.map((m, i) => (
                     <div
                       key={i}
@@ -778,7 +900,7 @@ export const ProjectAssistant: React.FC = () => {
                   )}
                 </div>
 
-                <div className="flex-none border-t border-white/5 p-4">
+                <div className="flex-none border-t border-white/5 p-3 sm:p-4">
                   {viewArchiveId ? (
                     <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
                       <span>
@@ -804,14 +926,14 @@ export const ProjectAssistant: React.FC = () => {
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage(input)}
                         maxLength={600}
-                        disabled={loading}
+                        disabled={loading || chatLoading}
                         placeholder={`Спросите ${ASSISTANT_NAME}...`}
                         className="flex-grow rounded-xl border border-white/10 bg-[#122e41] px-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-yellow-400/50 disabled:opacity-50"
                       />
                       <button
                         type="button"
                         onClick={() => sendMessage(input)}
-                        disabled={loading || !input.trim()}
+                        disabled={loading || chatLoading || !input.trim()}
                         className="rounded-xl bg-yellow-500 p-3 text-black transition-colors hover:bg-yellow-400 disabled:opacity-40"
                       >
                         →

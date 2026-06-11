@@ -53,21 +53,55 @@ export function getSessionLimitHint() {
 
 const makeId = () => `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-export function loadChatState(storageKey: string, welcome: StoredChatMessage): ActiveChatState {
+export function loadChatState(storageKey: string, welcome?: StoredChatMessage): ActiveChatState {
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) {
-      return { messages: [welcome], sessionCount: 0, archives: [] };
+      return applyDailySessionReset({
+        messages: welcome ? [welcome] : [],
+        sessionCount: 0,
+        archives: [],
+      });
     }
     const parsed = JSON.parse(raw) as Partial<ActiveChatState>;
     return applyDailySessionReset({
-      messages: parsed.messages?.length ? parsed.messages : [welcome],
+      messages: parsed.messages?.length ? parsed.messages : welcome ? [welcome] : [],
       sessionCount: parsed.sessionCount ?? 0,
       archives: parsed.archives ?? [],
       sessionDay: parsed.sessionDay,
     });
   } catch {
-    return applyDailySessionReset({ messages: [welcome], sessionCount: 0, archives: [] });
+    return applyDailySessionReset({
+      messages: welcome ? [welcome] : [],
+      sessionCount: 0,
+      archives: [],
+    });
+  }
+}
+
+const GUEST_SESSION_KEY = 'prosha_guest_session_v1';
+
+export function loadGuestChatState(): ActiveChatState {
+  try {
+    const raw = sessionStorage.getItem(GUEST_SESSION_KEY);
+    if (!raw) return applyDailySessionReset({ messages: [], sessionCount: 0, archives: [] });
+    const parsed = JSON.parse(raw) as Partial<ActiveChatState>;
+    return applyDailySessionReset({
+      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+      sessionCount: parsed.sessionCount ?? 0,
+      archives: parsed.archives ?? [],
+      sessionDay: parsed.sessionDay,
+    });
+  } catch {
+    return applyDailySessionReset({ messages: [], sessionCount: 0, archives: [] });
+  }
+}
+
+export function saveGuestChatState(state: ActiveChatState) {
+  try {
+    sessionStorage.setItem(GUEST_SESSION_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore */
   }
 }
 
@@ -79,9 +113,8 @@ export function saveChatState(storageKey: string, state: ActiveChatState) {
   }
 }
 
-export function archiveAndReset(
-  storageKey: string,
-  welcome: StoredChatMessage,
+export function archiveAndResetState(
+  welcome: StoredChatMessage | null,
   current: ActiveChatState,
 ): ActiveChatState {
   const hasUserMessages = current.messages.some((m) => m.role === 'user');
@@ -99,13 +132,29 @@ export function archiveAndReset(
   }
 
   const next: ActiveChatState = {
-    messages: [welcome],
+    messages: welcome ? [welcome] : [],
     sessionCount: 0,
     archives: archives.slice(0, 12),
     sessionDay: getLocalDayKey(),
   };
+  return next;
+}
+
+export function archiveAndReset(
+  storageKey: string,
+  welcome: StoredChatMessage,
+  current: ActiveChatState,
+): ActiveChatState {
+  const next = archiveAndResetState(welcome, current);
   saveChatState(storageKey, next);
   return next;
+}
+
+export function deleteArchiveState(archiveId: string, current: ActiveChatState): ActiveChatState {
+  return {
+    ...current,
+    archives: current.archives.filter((a) => a.id !== archiveId),
+  };
 }
 
 export function deleteArchive(
@@ -113,10 +162,7 @@ export function deleteArchive(
   archiveId: string,
   current: ActiveChatState,
 ): ActiveChatState {
-  const next: ActiveChatState = {
-    ...current,
-    archives: current.archives.filter((a) => a.id !== archiveId),
-  };
+  const next = deleteArchiveState(archiveId, current);
   saveChatState(storageKey, next);
   return next;
 }
