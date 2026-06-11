@@ -54,6 +54,7 @@ import { ProfileSecuritySettings } from './profile/ProfileSecuritySettings';
 import { ProjectMessenger } from './profile/ProjectMessenger';
 import { getQuizMeta, getSkillLevel, parseSkillEntry, type QuizResultPayload } from '../utils/quizStorage';
 import { getScoreBarColor } from '../data/itQuiz';
+import { validateContactInfo } from '../utils/security';
 
 interface Application {
   user_id: string;
@@ -334,6 +335,13 @@ export const ProfilePage: React.FC<{
     setSaveMessage('');
     setSaveError('');
     setIsSaving(true);
+
+    const contactCheck = validateContactInfo(formData.contact_info);
+    if (!contactCheck.ok) {
+      setIsSaving(false);
+      setSaveError(contactCheck.error || 'Некорректные контакты');
+      return;
+    }
 
     const patch: Partial<UserProfile> = {
       full_name: formData.full_name.trim(),

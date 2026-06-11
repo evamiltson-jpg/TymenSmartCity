@@ -1,5 +1,11 @@
 import { isSupabaseConfigured, supabase } from './supabase';
 import { ensureAuthSession } from './projectService';
+import {
+  decryptMessage,
+  encryptMessage,
+  messageCryptoScopes,
+} from '../utils/messageCrypto';
+import { sanitizeChatInput } from '../utils/security';
 
 export interface ProjectChatMessage {
   id: string;
@@ -240,11 +246,18 @@ export const fetchProjectMessages = async (projectId: string): Promise<ProjectCh
     ]),
   );
 
-  return messages.map((m) => ({
+  const enriched = messages.map((m) => ({
     ...m,
     sender_name: profileMap.get(m.sender_id)?.name ?? 'Участник',
     sender_contact: profileMap.get(m.sender_id)?.contact ?? null,
   }));
+
+  return Promise.all(
+    enriched.map(async (m) => ({
+      ...m,
+      body: await decryptMessage(m.body, messageCryptoScopes.projectChat(projectId)),
+    })),
+  );
 };
 
 export const sendProjectMessage = async (
@@ -256,14 +269,19 @@ export const sendProjectMessage = async (
     return { ok: false, error: 'Supabase не настроен.' };
   }
 
-  const trimmed = body.trim();
+  const trimmed = sanitizeChatInput(body);
   if (!trimmed) return { ok: false, error: 'Введите сообщение.' };
+
+  const encryptedBody = await encryptMessage(
+    trimmed,
+    messageCryptoScopes.projectChat(projectId),
+  );
 
   await ensureAuthSession();
   const { data, error } = await withTimeout(
     supabase
       .from('project_chat_messages')
-      .insert({ project_id: projectId, sender_id: senderId, body: trimmed })
+      .insert({ project_id: projectId, sender_id: senderId, body: encryptedBody })
       .select('id, project_id, sender_id, body, created_at')
       .single(),
   );
@@ -275,7 +293,14 @@ export const sendProjectMessage = async (
     return { ok: false, error: error.message };
   }
 
-  return { ok: true, message: data as ProjectChatMessage };
+  const row = data as ProjectChatMessage;
+  return {
+    ok: true,
+    message: {
+      ...row,
+      body: trimmed,
+    },
+  };
 };
 
 export const fetchDirectChats = async (userId: string): Promise<DirectChatOption[]> => {
@@ -303,10 +328,14 @@ export const fetchDirectChats = async (userId: string): Promise<DirectChatOption
   for (const row of data || []) {
     const peerId = row.sender_id === userId ? row.recipient_id : row.sender_id;
     if (hidden.has(peerId) || peerMap.has(peerId)) continue;
+    const preview = await decryptMessage(
+      row.body as string,
+      messageCryptoScopes.directChat(userId, peerId),
+    );
     peerMap.set(peerId, {
       peer_id: peerId,
       peer_name: 'Участник',
-      last_message: row.body,
+      last_message: preview,
       last_at: row.created_at,
     });
   }
@@ -357,7 +386,13 @@ export const fetchDirectMessages = async (
     .eq('sender_id', peerId)
     .eq('is_read', false);
 
-  return (data || []) as DirectMessage[];
+  const scope = messageCryptoScopes.directChat(userId, peerId);
+  return Promise.all(
+    ((data || []) as DirectMessage[]).map(async (msg) => ({
+      ...msg,
+      body: await decryptMessage(msg.body, scope),
+    })),
+  );
 };
 
 export const sendDirectMessage = async (
@@ -368,8 +403,13 @@ export const sendDirectMessage = async (
   if (!isSupabaseConfigured) return { ok: false, error: 'Supabase не настроен.' };
   if (userId === peerId) return { ok: false, error: 'Нельзя написать самому себе.' };
 
-  const trimmed = body.trim();
+  const trimmed = sanitizeChatInput(body);
   if (!trimmed) return { ok: false, error: 'Введите сообщение.' };
+
+  const encryptedBody = await encryptMessage(
+    trimmed,
+    messageCryptoScopes.directChat(userId, peerId),
+  );
 
   await ensureAuthSession();
 
@@ -382,7 +422,7 @@ export const sendDirectMessage = async (
   const { error } = await supabase.from('direct_messages').insert({
     sender_id: userId,
     recipient_id: peerId,
-    body: trimmed,
+    body: encryptedBody,
   });
 
   if (error) {

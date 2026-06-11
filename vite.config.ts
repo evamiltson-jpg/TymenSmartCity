@@ -11,6 +11,20 @@ export default defineConfig({
     },
   },
   plugins: [react()],
+  server: {
+    headers: {
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+    },
+  },
+  preview: {
+    headers: {
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+    },
+  },
   // Делаем относительные пути, чтобы статический сайт запускался из dist и с Live Server.
   base: './',
   build: {

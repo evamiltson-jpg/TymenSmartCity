@@ -18,6 +18,8 @@ import {
   type ProjectChatMessage,
   type ProjectChatParticipant,
 } from '../../services/projectChatService';
+import { ChatSecurityNotice } from './ChatSecurityNotice';
+import { validateChatMessage } from '../../utils/security';
 
 export const ProjectMessenger: React.FC = () => {
   const { user } = useAuth();
@@ -121,17 +123,23 @@ export const ProjectMessenger: React.FC = () => {
     e.preventDefault();
     if (!user || !selection || !draft.trim()) return;
 
+    const validation = validateChatMessage(draft);
+    if (!validation.ok) {
+      setError(validation.error || 'Недопустимое сообщение');
+      return;
+    }
+
     setSending(true);
     setError('');
 
     let result: { ok: boolean; error?: string };
     if (selection.kind === 'project') {
-      result = await sendProjectMessage(selection.projectId, user.id, draft);
+      result = await sendProjectMessage(selection.projectId, user.id, validation.value);
       if (result.ok) {
         setMessages(await fetchProjectMessages(selection.projectId));
       }
     } else {
-      result = await sendDirectMessage(user.id, selection.peerId, draft);
+      result = await sendDirectMessage(user.id, selection.peerId, validation.value);
       if (result.ok) {
         setDirectMessages(await fetchDirectMessages(user.id, selection.peerId));
         const dmList = await fetchDirectChats(user.id);
@@ -209,7 +217,9 @@ export const ProjectMessenger: React.FC = () => {
       : selectedDirect?.peer_name || 'Личные сообщения';
 
   return (
-    <div className="messenger-panel grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 min-h-0">
+    <div className="space-y-4">
+      <ChatSecurityNotice />
+      <div className="messenger-panel grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-4 min-h-0">
       <div className="messenger-sidebar custom-scrollbar bg-[#122e41] rounded-2xl border border-white/5 p-3 space-y-3 overflow-y-auto min-h-0">
         {projects.length > 0 && (
           <div className="space-y-1">
@@ -438,6 +448,7 @@ export const ProjectMessenger: React.FC = () => {
           </form>
         )}
       </div>
+    </div>
     </div>
   );
 };

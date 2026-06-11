@@ -1,5 +1,11 @@
 import { isSupabaseConfigured, supabase } from './supabase';
 import { ensureAuthSession } from './projectService';
+import {
+  decryptMessageField,
+  encryptMessage,
+  messageCryptoScopes,
+} from '../utils/messageCrypto';
+import { sanitizeChatInput } from '../utils/security';
 
 export type ApplicationStatus = 'pending' | 'accepted' | 'rejected';
 
@@ -103,6 +109,19 @@ const matchesProject = (app: ProjectApplication, projectId: string, projectTitle
 
 const selectColumns = 'id, user_id, project_id, project_title, status, message, submitted_at';
 
+const applicationScope = (app: Pick<ProjectApplication, 'project_id' | 'user_id'>) =>
+  messageCryptoScopes.application(app.project_id || 'unknown', app.user_id);
+
+const decryptApplications = async <T extends ProjectApplication>(apps: T[]): Promise<T[]> =>
+  Promise.all(
+    apps.map(async (app) => ({
+      ...app,
+      message: app.message
+        ? await decryptMessageField(app.message, applicationScope(app))
+        : app.message,
+    })),
+  );
+
 export const fetchUserApplications = async (userId: string): Promise<ProjectApplication[]> => {
   if (!isSupabaseConfigured) return readAppsCache(userId);
 
@@ -118,7 +137,7 @@ export const fetchUserApplications = async (userId: string): Promise<ProjectAppl
     );
 
     if (error) throw error;
-    const apps = (data || []) as ProjectApplication[];
+    const apps = await decryptApplications((data || []) as ProjectApplication[]);
     writeAppsCache(userId, apps);
     return apps;
   } catch (error) {
@@ -161,7 +180,9 @@ export const fetchApplicationForProject = async (
 
     const { data, error } = await withTimeout(query.maybeSingle());
     if (error) throw error;
-    return (data as ProjectApplication) || null;
+    if (!data) return null;
+    const [decrypted] = await decryptApplications([data as ProjectApplication]);
+    return decrypted;
   } catch {
     return (
       readAppsCache(userId).find(
@@ -213,7 +234,16 @@ export const submitProjectApplication = async (
       return { ok: false, message: 'Вы уже приняты в этот проект.' };
     }
 
-    const trimmedMessage = message?.trim().slice(0, 500) || null;
+    const trimmedMessage = message ? sanitizeChatInput(message, 500) : '';
+    const encryptedMessage = trimmedMessage
+      ? await encryptMessage(
+          trimmedMessage,
+          messageCryptoScopes.application(
+            normalizeProjectId(projectId) || projectId,
+            userId,
+          ),
+        )
+      : null;
 
     const { data, error } = await withTimeout(
       supabase
@@ -223,7 +253,7 @@ export const submitProjectApplication = async (
           project_id: normalizeProjectId(projectId),
           project_title: projectTitle,
           status: 'pending',
-          message: trimmedMessage,
+          message: encryptedMessage,
         })
         .select(selectColumns)
         .single(),
@@ -236,7 +266,10 @@ export const submitProjectApplication = async (
       return { ok: false, message: formatApplicationError(error) };
     }
 
-    const application = data as ProjectApplication;
+    const application = {
+      ...(data as ProjectApplication),
+      message: trimmedMessage || null,
+    };
     upsertAppsCache(userId, application);
 
     return {
@@ -345,7 +378,7 @@ export const fetchAcceptedMemberships = async (userId: string): Promise<ProjectA
         .limit(30),
     );
     if (error) throw error;
-    return (data || []) as ProjectApplication[];
+    return decryptApplications((data || []) as ProjectApplication[]);
   } catch {
     return [];
   }
@@ -432,11 +465,13 @@ export const fetchIncomingApplications = async (ownerId: string): Promise<Incomi
       ]),
     );
 
-    return apps.map((app) => ({
-      ...app,
-      applicant_name: profileMap.get(app.user_id)?.name,
-      applicant_contact: profileMap.get(app.user_id)?.contact ?? null,
-    }));
+    return decryptApplications(
+      apps.map((app) => ({
+        ...app,
+        applicant_name: profileMap.get(app.user_id)?.name,
+        applicant_contact: profileMap.get(app.user_id)?.contact ?? null,
+      })),
+    );
   } catch {
     return [];
   }

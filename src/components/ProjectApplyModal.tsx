@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { validateApplicationMessage } from '../utils/security';
 
 const MAX_MESSAGE_LENGTH = 500;
 
@@ -18,12 +19,19 @@ export const ProjectApplyModal: React.FC<ProjectApplyModalProps> = ({
   onSubmit,
 }) => {
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(message.trim());
+    const validation = validateApplicationMessage(message);
+    if (!validation.ok) {
+      setError(validation.error || 'Недопустимый текст');
+      return;
+    }
+    setError('');
+    onSubmit(validation.value);
   };
 
   const handleClose = () => {
@@ -75,8 +83,9 @@ export const ProjectApplyModal: React.FC<ProjectApplyModalProps> = ({
             </p>
           </div>
           <p className="text-xs text-gray-500 leading-relaxed">
-            После отправки автор проекта получит уведомление. Статус заявки можно отслеживать в личном кабинете.
+            Сообщение шифруется перед сохранением. Не указывайте номер телефона — используйте контакты из профиля.
           </p>
+          {error && <p className="text-xs text-rose-400">{error}</p>}
           <div className="flex flex-col sm:flex-row gap-3 pt-1">
             <button
               type="button"
