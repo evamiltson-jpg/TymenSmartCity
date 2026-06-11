@@ -37,6 +37,7 @@ const AUTH_PAGES = ['login', 'register', 'forgot-password', 'reset-password'] as
 const AppContent: React.FC = () => {
   const { passwordRecoveryMode, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState('home');
+  const [profileTab, setProfileTab] = useState<string | undefined>();
   const [isChatOpen, setIsChatOpen] = useState(false);
 
 
@@ -67,7 +68,8 @@ const AppContent: React.FC = () => {
     );
   }
 
-  const navigate = (page: string) => {
+  const navigate = (page: string, tab?: string) => {
+    if (tab) setProfileTab(tab);
     setCurrentPage(page);
     window.history.replaceState({}, '', '/');
     window.scrollTo(0, 0);
@@ -144,7 +146,11 @@ const AppContent: React.FC = () => {
       case 'newPage':
         return (
           <Suspense fallback={<SectionLoader />}>
-            <ProfilePage onNavigate={navigate} />
+            <ProfilePage
+              onNavigate={navigate}
+              initialTab={profileTab}
+              onInitialTabApplied={() => setProfileTab(undefined)}
+            />
           </Suspense>
         );
 

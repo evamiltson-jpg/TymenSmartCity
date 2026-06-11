@@ -9,7 +9,13 @@ export interface ProjectApplication {
   project_id: string | null;
   project_title: string;
   status: ApplicationStatus;
+  message?: string | null;
   submitted_at: string;
+}
+
+export interface IncomingApplication extends ProjectApplication {
+  applicant_name?: string;
+  applicant_contact?: string | null;
 }
 
 export const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
@@ -95,7 +101,7 @@ const matchesProject = (app: ProjectApplication, projectId: string, projectTitle
   return app.project_title.trim().toLowerCase() === projectTitle.trim().toLowerCase();
 };
 
-const selectColumns = 'id, user_id, project_id, project_title, status, submitted_at';
+const selectColumns = 'id, user_id, project_id, project_title, status, message, submitted_at';
 
 export const fetchUserApplications = async (userId: string): Promise<ProjectApplication[]> => {
   if (!isSupabaseConfigured) return readAppsCache(userId);
@@ -171,6 +177,7 @@ export const submitProjectApplication = async (
   userId: string,
   projectId: string,
   projectTitle: string,
+  message?: string,
 ): Promise<{ ok: boolean; message: string; application?: ProjectApplication }> => {
   if (!isSupabaseConfigured) {
     return { ok: false, message: 'Supabase не настроен. Заявку нельзя отправить.' };
@@ -201,6 +208,8 @@ export const submitProjectApplication = async (
       return { ok: false, message: 'Вы уже приняты в этот проект.' };
     }
 
+    const trimmedMessage = message?.trim().slice(0, 500) || null;
+
     const { data, error } = await withTimeout(
       supabase
         .from('user_applications')
@@ -209,6 +218,7 @@ export const submitProjectApplication = async (
           project_id: normalizeProjectId(projectId),
           project_title: projectTitle,
           status: 'pending',
+          message: trimmedMessage,
         })
         .select(selectColumns)
         .single(),
@@ -274,5 +284,104 @@ export const invalidateApplicationsCache = (userId: string) => {
     sessionStorage.removeItem(appsCacheKey(userId));
   } catch {
     // ignore
+  }
+};
+
+export const fetchIncomingApplications = async (ownerId: string): Promise<IncomingApplication[]> => {
+  if (!isSupabaseConfigured) return [];
+
+  try {
+    await ensureAuthSession();
+
+    const { data: ownedProjects, error: projectsError } = await withTimeout(
+      supabase.from('projects').select('id, title').eq('created_by', ownerId).limit(50),
+    );
+    if (projectsError) throw projectsError;
+
+    const projectIds = (ownedProjects || []).map((p) => String(p.id));
+    const projectTitles = (ownedProjects || []).map((p) => p.title);
+
+    if (projectIds.length === 0 && projectTitles.length === 0) return [];
+
+    let query = supabase
+      .from('user_applications')
+      .select(selectColumns)
+      .order('submitted_at', { ascending: false })
+      .limit(50);
+
+    if (projectIds.length > 0) {
+      query = query.in('project_id', projectIds);
+    } else {
+      query = query.in('project_title', projectTitles);
+    }
+
+    const { data, error } = await withTimeout(query);
+    if (error) throw error;
+
+    const apps = (data || []) as IncomingApplication[];
+    if (apps.length === 0) return apps;
+
+    const applicantIds = [...new Set(apps.map((a) => a.user_id))];
+    const { data: profiles } = await supabase
+      .from('user_profiles')
+      .select('id, full_name, email, contact_info')
+      .in('id', applicantIds);
+
+    const profileMap = new Map(
+      (profiles || []).map((p) => [
+        p.id,
+        {
+          name: p.full_name || p.email || 'Участник',
+          contact: p.contact_info as string | null,
+        },
+      ]),
+    );
+
+    return apps.map((app) => ({
+      ...app,
+      applicant_name: profileMap.get(app.user_id)?.name,
+      applicant_contact: profileMap.get(app.user_id)?.contact ?? null,
+    }));
+  } catch {
+    return [];
+  }
+};
+
+export const reviewProjectApplication = async (
+  ownerId: string,
+  applicationId: string,
+  status: 'accepted' | 'rejected',
+): Promise<{ ok: boolean; message: string }> => {
+  if (!isSupabaseConfigured) {
+    return { ok: false, message: 'Supabase не настроен.' };
+  }
+
+  try {
+    await ensureAuthSession();
+
+    const incoming = await fetchIncomingApplications(ownerId);
+    const target = incoming.find((a) => a.id === applicationId);
+    if (!target) {
+      return { ok: false, message: 'Заявка не найдена или нет прав на её обработку.' };
+    }
+    if (target.status !== 'pending') {
+      return { ok: false, message: 'Заявка уже обработана.' };
+    }
+
+    const { error } = await withTimeout(
+      supabase
+        .from('user_applications')
+        .update({ status, reviewed_at: new Date().toISOString() })
+        .eq('id', applicationId),
+    );
+
+    if (error) return { ok: false, message: formatApplicationError(error) };
+
+    return {
+      ok: true,
+      message: status === 'accepted' ? 'Заявка принята. Участник получит уведомление.' : 'Заявка отклонена.',
+    };
+  } catch (error) {
+    return { ok: false, message: formatApplicationError(error) };
   }
 };

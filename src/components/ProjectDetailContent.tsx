@@ -9,6 +9,7 @@ import {
   submitProjectApplication,
   type ProjectApplication,
 } from '../services/projectApplicationService';
+import { ProjectApplyModal } from './ProjectApplyModal';
 import {
   computeDisplayProjectStats,
   getRemainingRatingsToday,
@@ -47,6 +48,7 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
   const [applyMessage, setApplyMessage] = useState('');
   const [applyBusy, setApplyBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [showApplyModal, setShowApplyModal] = useState(false);
 
   useEffect(() => {
     setStats(computeDisplayProjectStats(project));
@@ -78,20 +80,31 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
     }
   };
 
-  const handleApply = async () => {
+  const handleApplyClick = () => {
     if (!isAuthenticated || !user) {
       setApplyMessage('Войдите в аккаунт, чтобы подать заявку.');
       onNavigate?.('login');
       return;
     }
+    setShowApplyModal(true);
+  };
+
+  const handleApplySubmit = async (message: string) => {
+    if (!user) return;
 
     setApplyBusy(true);
     setApplyMessage('');
     try {
-      const result = await submitProjectApplication(user.id, String(project.id), project.title);
+      const result = await submitProjectApplication(
+        user.id,
+        String(project.id),
+        project.title,
+        message,
+      );
       setApplyMessage(result.message);
       if (result.ok && result.application) {
         setApplication(result.application);
+        setShowApplyModal(false);
         onApplySuccess?.();
       }
     } catch {
@@ -205,11 +218,11 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
           ) : (
             <button
               type="button"
-              onClick={handleApply}
+              onClick={handleApplyClick}
               disabled={applyBusy}
               className="w-full sm:w-auto bg-yellow-400 hover:bg-yellow-500 disabled:opacity-60 text-black font-bold py-2.5 px-6 rounded-xl text-sm transition-colors"
             >
-              {applyBusy ? 'Отправка...' : 'Подать заявку'}
+              Подать заявку
             </button>
           )}
           {applyMessage && <p className="text-sm text-gray-300">{applyMessage}</p>}
@@ -220,6 +233,14 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
           )}
         </div>
       )}
+
+      <ProjectApplyModal
+        projectTitle={project.title}
+        isOpen={showApplyModal}
+        isSubmitting={applyBusy}
+        onClose={() => setShowApplyModal(false)}
+        onSubmit={handleApplySubmit}
+      />
     </div>
   );
 };

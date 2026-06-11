@@ -2,10 +2,11 @@
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { t } from '../i18n';
+import { NotificationBell } from './NotificationBell';
 import cityLogo from '../assets/City_logo.png';
 
 interface HeaderProps {
-  onNavigate: (page: string) => void;
+  onNavigate: (page: string, tab?: string) => void;
   onOpenChat: () => void;
 }
 
@@ -55,6 +56,8 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenChat }) => {
             <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
           </svg>
         </button>
+
+        <NotificationBell onNavigate={onNavigate} />
 
         {isAuthenticated ? (
           <button 

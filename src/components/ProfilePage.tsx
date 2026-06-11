@@ -16,9 +16,18 @@ import {
 import {
   cancelProjectApplication,
   APPLICATION_STATUS_LABELS,
+  fetchIncomingApplications,
   fetchUserApplications,
+  reviewProjectApplication,
+  type IncomingApplication,
   type ProjectApplication,
 } from '../services/projectApplicationService';
+import {
+  fetchNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type UserNotification,
+} from '../services/notificationService';
 import {
   createProjectTeam,
   deleteProjectTeam,
@@ -39,6 +48,7 @@ import { LINK_TYPE_LABELS, USER_TYPE_LABELS } from '../types/profile';
 import { ITQuizModal } from './ITQuizModal';
 import { CreateProjectModal, CreateTeamModal, EditTeamModal } from './profile/ProfileCreateModals';
 import { ProfileSecuritySettings } from './profile/ProfileSecuritySettings';
+import { ProjectMessenger } from './profile/ProjectMessenger';
 import { getQuizMeta, getSkillLevel, parseSkillEntry, type QuizResultPayload } from '../utils/quizStorage';
 import { getScoreBarColor } from '../data/itQuiz';
 
@@ -48,8 +58,38 @@ interface Application {
   project_id: string | null;
   status: ProjectApplication['status'];
   project_title: string;
+  message?: string | null;
   submitted_at: string;
 }
+
+type ProfileTab =
+  | 'profile'
+  | 'applications'
+  | 'incoming'
+  | 'notifications'
+  | 'messages'
+  | 'projects'
+  | 'teams';
+
+const PROFILE_TAB_LABELS: Record<ProfileTab, string> = {
+  profile: 'Профиль',
+  applications: 'Мои заявки',
+  incoming: 'Заявки ко мне',
+  notifications: 'Уведомления',
+  messages: 'Сообщения',
+  projects: 'Мои проекты',
+  teams: 'Мои команды',
+};
+
+const PROFILE_TABS: ProfileTab[] = [
+  'profile',
+  'applications',
+  'incoming',
+  'notifications',
+  'messages',
+  'projects',
+  'teams',
+];
 
 interface UserProject {
   user_id: string;
@@ -64,7 +104,11 @@ const inputClass =
   'w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-yellow-400';
 const labelClass = 'block text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider';
 
-export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onNavigate }) => {
+export const ProfilePage: React.FC<{
+  onNavigate: (p: string, tab?: string) => void;
+  initialTab?: string;
+  onInitialTabApplied?: () => void;
+}> = ({ onNavigate, initialTab, onInitialTabApplied }) => {
   const {
     user,
     userProfile,
@@ -74,13 +118,16 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     loading: authLoading,
   } = useAuth();
 
-  const [tab, setTab] = useState<'profile' | 'applications' | 'projects' | 'teams'>('profile');
+  const [tab, setTab] = useState<ProfileTab>('profile');
   const [isEditing, setIsEditing] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [showCreateTeam, setShowCreateTeam] = useState(false);
   const [editingTeam, setEditingTeam] = useState<UserTeamDetail | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [incomingApplications, setIncomingApplications] = useState<IncomingApplication[]>([]);
+  const [notifications, setNotifications] = useState<UserNotification[]>([]);
+  const [reviewBusyId, setReviewBusyId] = useState<string | null>(null);
   const [projects, setProjects] = useState<UserProject[]>([]);
   const [submittedProjects, setSubmittedProjects] = useState<SubmittedProject[]>(() =>
     user ? readSubmittedProjectsCache(user.id) ?? [] : [],
@@ -141,6 +188,7 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     company: '',
     experience_years: '',
     city_interests: '',
+    contact_info: '',
   });
 
   const [newLink, setNewLink] = useState<{ type: ProfileLink['type']; label: string; url: string }>({
@@ -163,6 +211,7 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
         company: userProfile.company || '',
         experience_years: userProfile.experience_years?.toString() || '',
         city_interests: userProfile.city_interests || '',
+        contact_info: userProfile.contact_info || '',
       });
     }
   }, [userProfile]);
@@ -197,11 +246,19 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     }
   };
 
+  useEffect(() => {
+    if (!initialTab) return;
+    if (PROFILE_TABS.includes(initialTab as ProfileTab)) {
+      setTab(initialTab as ProfileTab);
+    }
+    onInitialTabApplied?.();
+  }, [initialTab, onInitialTabApplied]);
+
   const loadUserData = async () => {
     if (!user || authLoading) return;
     setLoadingData(true);
     try {
-      const [appsRes, projsRes, teamsRes] = await Promise.all([
+      const [appsRes, projsRes, teamsRes, incomingRes, notifRes] = await Promise.all([
         fetchUserApplications(user.id).then((data) => ({ data, error: null })).catch((error) => ({
           data: null,
           error,
@@ -216,6 +273,8 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
           data: null,
           error,
         })),
+        fetchIncomingApplications(user.id),
+        fetchNotifications(user.id),
       ]);
 
       if (appsRes.data) setApplications(appsRes.data as Application[]);
@@ -223,6 +282,8 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
       if (projsRes.data) setProjects(projsRes.data as UserProject[]);
       if (teamsRes.data) setTeams(teamsRes.data);
       else if (teamsRes.error) console.error('Teams load error:', teamsRes.error);
+      setIncomingApplications(incomingRes);
+      setNotifications(notifRes);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -272,6 +333,7 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
       full_name: formData.full_name.trim(),
       user_type: formData.user_type,
       bio: formData.bio.trim(),
+      contact_info: formData.contact_info.trim(),
     };
 
     if (showStudentFields) {
@@ -383,6 +445,37 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
     }
   };
 
+  const handleReviewApplication = async (applicationId: string, status: 'accepted' | 'rejected') => {
+    if (!user) return;
+    setReviewBusyId(applicationId);
+    setSaveError('');
+    const result = await reviewProjectApplication(user.id, applicationId, status);
+    setReviewBusyId(null);
+    if (result.ok) {
+      setSaveMessage(result.message);
+      await loadUserData();
+    } else {
+      setSaveError(result.message);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    if (!user) return;
+    await markAllNotificationsRead(user.id);
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+  };
+
+  const handleNotificationClick = async (notification: UserNotification) => {
+    if (!user || notification.is_read) return;
+    await markNotificationRead(user.id, notification.id);
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === notification.id ? { ...n, is_read: true } : n)),
+    );
+  };
+
+  const pendingIncomingCount = incomingApplications.filter((a) => a.status === 'pending').length;
+  const unreadNotificationsCount = notifications.filter((n) => !n.is_read).length;
+
   const handleCreateTeam = async (payload: TeamCreatePayload) => {
     if (!user) return;
     await createProjectTeam(user.id, payload);
@@ -473,15 +566,25 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
       )}
 
       <div className="flex flex-wrap gap-3 mb-12 border-b border-white/10 pb-6">
-        {(['profile', 'applications', 'projects', 'teams'] as const).map((t) => (
+        {PROFILE_TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-6 py-2 font-bold text-sm uppercase tracking-widest rounded-t-xl ${
+            className={`px-4 py-2 font-bold text-xs sm:text-sm uppercase tracking-widest rounded-t-xl relative ${
               tab === t ? 'bg-yellow-400 text-black' : 'text-gray-400 hover:text-white'
             }`}
           >
-            {t === 'profile' ? 'Профиль' : t === 'applications' ? 'Заявки' : t === 'projects' ? 'Мои проекты' : 'Мои команды'}
+            {PROFILE_TAB_LABELS[t]}
+            {t === 'incoming' && pendingIncomingCount > 0 && (
+              <span className="ml-1 inline-flex min-w-[18px] h-[18px] px-1 items-center justify-center rounded-full bg-rose-500 text-white text-[10px] font-black">
+                {pendingIncomingCount}
+              </span>
+            )}
+            {t === 'notifications' && unreadNotificationsCount > 0 && (
+              <span className="ml-1 inline-flex min-w-[18px] h-[18px] px-1 items-center justify-center rounded-full bg-yellow-400 text-black text-[10px] font-black">
+                {unreadNotificationsCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -591,6 +694,20 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
                   <textarea value={formData.bio} onChange={(e) => setFormData({ ...formData, bio: e.target.value })} rows={5} placeholder="Расскажите о себе, интересах и целях..." className={`${inputClass} resize-none`} />
                 </div>
 
+                <div>
+                  <label className={labelClass}>Контакты для связи</label>
+                  <input
+                    type="text"
+                    value={formData.contact_info}
+                    onChange={(e) => setFormData({ ...formData, contact_info: e.target.value })}
+                    placeholder="Telegram @username, Discord, VK..."
+                    className={inputClass}
+                  />
+                  <p className="text-[11px] text-amber-200/70 mt-2 leading-relaxed">
+                    Укажите ник в Telegram, ссылку на Discord, VK и т.п. Не рекомендуем указывать номер телефона — это небезопасно.
+                  </p>
+                </div>
+
                 {showStudentFields && (
                   <>
                     <div>
@@ -679,6 +796,12 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
                 )}
                 {showCitizenFields && userProfile?.city_interests && (
                   <div><p className={labelClass}>Интересы</p><p className="text-white">{userProfile.city_interests}</p></div>
+                )}
+                {userProfile?.contact_info && (
+                  <div>
+                    <p className={labelClass}>Контакты</p>
+                    <p className="text-white whitespace-pre-wrap">{userProfile.contact_info}</p>
+                  </div>
                 )}
               </div>
             )}
@@ -776,6 +899,11 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
                   <div>
                     <h3 className="font-bold text-lg text-white mb-1">{app.project_title}</h3>
                     <p className="text-gray-400 text-xs">Подана: {new Date(app.submitted_at).toLocaleDateString('ru-RU')}</p>
+                    {app.message && (
+                      <p className="text-gray-300 text-sm mt-2 whitespace-pre-wrap border-l-2 border-yellow-400/40 pl-3">
+                        {app.message}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     <span
@@ -803,6 +931,143 @@ export const ProfilePage: React.FC<{ onNavigate: (p: string) => void }> = ({ onN
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {tab === 'incoming' && (
+        <div className="space-y-6">
+          <h2 className="text-2xl font-bold text-white">Заявки в мои проекты</h2>
+          <p className="text-sm text-gray-400">
+            Здесь отображаются заявки от участников на проекты, которые вы создали.
+          </p>
+          {loadingData ? (
+            <p className="text-gray-400">Загрузка...</p>
+          ) : incomingApplications.length === 0 ? (
+            <div className="bg-[#122e41] p-12 rounded-[32px] border border-white/5 text-center text-gray-400">
+              Входящих заявок пока нет
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {incomingApplications.map((app) => (
+                <div
+                  key={app.id}
+                  className="bg-[#122e41] p-6 rounded-2xl border border-white/5 space-y-3"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-bold text-lg text-white">{app.project_title}</h3>
+                      <p className="text-yellow-400 text-sm font-semibold mt-1">
+                        {app.applicant_name || 'Участник'}
+                      </p>
+                      <p className="text-gray-500 text-xs">
+                        {new Date(app.submitted_at).toLocaleString('ru-RU')}
+                      </p>
+                    </div>
+                    <span
+                      className={`self-start px-4 py-2 rounded-xl font-bold uppercase text-xs ${
+                        app.status === 'accepted'
+                          ? 'text-green-400 bg-green-500/10'
+                          : app.status === 'rejected'
+                            ? 'text-red-400 bg-red-500/10'
+                            : 'text-yellow-400 bg-yellow-400/10'
+                      }`}
+                    >
+                      {APPLICATION_STATUS_LABELS[app.status]}
+                    </span>
+                  </div>
+                  {app.message && (
+                    <p className="text-gray-300 text-sm whitespace-pre-wrap bg-[#0d2231] rounded-xl p-4 border border-white/5">
+                      {app.message}
+                    </p>
+                  )}
+                  {app.applicant_contact && (
+                    <p className="text-xs text-gray-400">
+                      Контакты участника: <span className="text-white">{app.applicant_contact}</span>
+                    </p>
+                  )}
+                  {app.status === 'pending' && (
+                    <div className="flex flex-wrap gap-3 pt-1">
+                      <button
+                        type="button"
+                        disabled={reviewBusyId === app.id}
+                        onClick={() => void handleReviewApplication(app.id, 'accepted')}
+                        className="px-5 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-400 font-bold rounded-xl text-xs uppercase disabled:opacity-50"
+                      >
+                        {reviewBusyId === app.id ? '...' : 'Принять'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={reviewBusyId === app.id}
+                        onClick={() => void handleReviewApplication(app.id, 'rejected')}
+                        className="px-5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 font-bold rounded-xl text-xs uppercase disabled:opacity-50"
+                      >
+                        Отклонить
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'notifications' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-2xl font-bold text-white">Уведомления</h2>
+            {unreadNotificationsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => void handleMarkAllNotificationsRead()}
+                className="text-xs font-bold text-yellow-400 uppercase"
+              >
+                Прочитать все
+              </button>
+            )}
+          </div>
+          {loadingData ? (
+            <p className="text-gray-400">Загрузка...</p>
+          ) : notifications.length === 0 ? (
+            <div className="bg-[#122e41] p-12 rounded-[32px] border border-white/5 text-center text-gray-400">
+              Уведомлений пока нет
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {notifications.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => {
+                    void handleNotificationClick(n);
+                    const targetTab = n.link_payload?.tab;
+                    if (targetTab && PROFILE_TABS.includes(targetTab as ProfileTab)) {
+                      setTab(targetTab as ProfileTab);
+                    }
+                  }}
+                  className={`w-full text-left bg-[#122e41] p-5 rounded-2xl border transition-colors ${
+                    n.is_read ? 'border-white/5' : 'border-yellow-400/30 bg-yellow-400/5'
+                  }`}
+                >
+                  <p className="font-bold text-white">{n.title}</p>
+                  {n.body && <p className="text-sm text-gray-400 mt-1">{n.body}</p>}
+                  <p className="text-[10px] text-gray-600 mt-2">
+                    {new Date(n.created_at).toLocaleString('ru-RU')}
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'messages' && (
+        <div className="space-y-6">
+          <h2 className="text-2xl font-bold text-white">Сообщения по проектам</h2>
+          <p className="text-sm text-gray-400">
+            Мини-мессенджер для связи автора проекта с принятыми участниками.
+          </p>
+          <ProjectMessenger />
         </div>
       )}
 

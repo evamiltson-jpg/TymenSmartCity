@@ -30,6 +30,7 @@ export interface UserProfile {
   company?: string;
   experience_years?: number | null;
   city_interests?: string;
+  contact_info?: string;
   links?: ProfileLink[];
   certificates?: ProfileCertificate[];
   quiz_completed_at?: string | null;

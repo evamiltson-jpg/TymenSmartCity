@@ -70,6 +70,7 @@ export const buildProfileRow = (
     company: merged.company ?? '',
     experience_years: merged.experience_years ?? null,
     city_interests: merged.city_interests ?? '',
+    contact_info: merged.contact_info ?? '',
     links: merged.links ?? [],
     certificates: merged.certificates ?? [],
     quiz_completed_at: merged.quiz_completed_at ?? null,
