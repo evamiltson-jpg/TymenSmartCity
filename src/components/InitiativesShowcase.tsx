@@ -10,13 +10,11 @@ import { InitiativeCard } from './InitiativeCard';
 
 interface InitiativesShowcaseProps {
   onNavigate?: (page: string, tab?: string) => void;
-  onOpenSubmit?: () => void;
   limit?: number;
 }
 
 export const InitiativesShowcase: React.FC<InitiativesShowcaseProps> = ({
   onNavigate,
-  onOpenSubmit,
   limit = 6,
 }) => {
   const { user } = useAuth();
@@ -76,26 +74,13 @@ export const InitiativesShowcase: React.FC<InitiativesShowcaseProps> = ({
   return (
     <section className="py-10 sm:py-14">
       <div className="mb-6 sm:mb-8">
-        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-1 h-8 sm:h-10 bg-yellow-400 rounded-full shrink-0" />
-              <h2 className="text-2xl sm:text-3xl font-bold text-white">Идеи жителей</h2>
-            </div>
-            <p className="text-gray-400 text-sm sm:text-base ml-4 sm:ml-5 max-w-2xl">
-              Предложения по улучшению города — оцените, насколько они важны для вас
-            </p>
-          </div>
-          {onOpenSubmit && (
-            <button
-              type="button"
-              onClick={onOpenSubmit}
-              className="shrink-0 w-full sm:w-auto px-5 py-3 rounded-xl bg-yellow-400 text-black font-black text-sm uppercase tracking-wider hover:bg-yellow-300 transition-colors"
-            >
-              Предложить идею
-            </button>
-          )}
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-1 h-8 sm:h-10 bg-yellow-400 rounded-full shrink-0" />
+          <h2 className="text-2xl sm:text-3xl font-bold text-white">Идеи жителей</h2>
         </div>
+        <p className="text-gray-400 text-sm sm:text-base ml-4 sm:ml-5 max-w-2xl">
+          Предложения по улучшению города — оцените, насколько они важны для вас
+        </p>
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-2 mb-6 sm:mb-8 -mx-1 px-1 scrollbar-thin">
@@ -142,16 +127,7 @@ export const InitiativesShowcase: React.FC<InitiativesShowcaseProps> = ({
           ))
         ) : (
           <div className="col-span-full text-center py-12 px-4 rounded-2xl border border-dashed border-white/10">
-            <p className="text-gray-400 mb-4">Пока нет предложений в этой категории</p>
-            {onOpenSubmit && (
-              <button
-                type="button"
-                onClick={onOpenSubmit}
-                className="px-5 py-2 rounded-xl bg-white/10 text-white font-bold text-sm hover:bg-white/15"
-              >
-                Стать первым
-              </button>
-            )}
+            <p className="text-gray-400">Пока нет предложений в этой категории</p>
           </div>
         )}
       </div>

@@ -154,6 +154,36 @@ export const fetchPublicInitiatives = async (
   return initiatives;
 };
 
+export interface InitiativeStats {
+  total: number;
+  completed: number;
+}
+
+export const fetchInitiativeStats = async (): Promise<InitiativeStats> => {
+  if (!isSupabaseConfigured) {
+    return { total: 0, completed: 0 };
+  }
+
+  const [totalRes, completedRes] = await Promise.all([
+    supabase
+      .from('citizen_initiatives')
+      .select('id', { count: 'exact', head: true })
+      .neq('status', 'rejected'),
+    supabase
+      .from('citizen_initiatives')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'completed'),
+  ]);
+
+  return {
+    total: totalRes.count ?? 0,
+    completed: completedRes.count ?? 0,
+  };
+};
+
+export const formatInitiativeStat = (value: number): string =>
+  value.toLocaleString('ru-RU');
+
 export const fetchMyInitiatives = async (userId: string): Promise<CitizenInitiative[]> => {
   if (!isSupabaseConfigured) return [];
 

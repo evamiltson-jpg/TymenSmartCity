@@ -180,7 +180,7 @@ export const MANAGEMENT_STEPS: ManagementStep[] = [
     icon: <div className="text-4xl mb-6">💡</div>,
     title: "Инициативы граждан",
     description: "Предложите идею или жалобу — установить лавочку, починить дорогу, улучшить двор. Другие жители оценят, насколько это необходимо.",
-    stat1_val: "1.2K", stat1_desc: "Предложений", stat2_val: "45", stat2_desc: "Реализовано",
+    stat1_val: "0", stat1_desc: "Предложений", stat2_val: "0", stat2_desc: "Реализовано",
     buttonText: "Предложить идею", buttonColor: "bg-yellow-500 text-black hover:bg-yellow-600"
   },
   { 
