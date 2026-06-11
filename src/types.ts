@@ -27,6 +27,7 @@ export interface ProjectData {
   participants: number;
   imageUrl: string;
   projectType: 'city' | 'commercial';
+  createdBy?: string | null;
 }
 
 export interface StudentStory {

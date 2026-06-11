@@ -186,6 +186,11 @@ export const submitProjectApplication = async (
   try {
     await ensureAuthSession();
 
+    const isOwner = await checkIsProjectOwner(userId, projectId, projectTitle);
+    if (isOwner) {
+      return { ok: false, message: 'Вы автор этого проекта — заявку подавать не нужно.' };
+    }
+
     const cached = readAppsCache(userId).find(
       (app) =>
         matchesProject(app, projectId, projectTitle) &&
@@ -284,6 +289,96 @@ export const invalidateApplicationsCache = (userId: string) => {
     sessionStorage.removeItem(appsCacheKey(userId));
   } catch {
     // ignore
+  }
+};
+
+export const checkIsProjectOwner = async (
+  userId: string,
+  projectId: string,
+  projectTitle: string,
+): Promise<boolean> => {
+  if (!isSupabaseConfigured) return false;
+
+  try {
+    await ensureAuthSession();
+    const normalizedId = normalizeProjectId(projectId);
+
+    if (normalizedId) {
+      const { data } = await withTimeout(
+        supabase
+          .from('projects')
+          .select('created_by')
+          .eq('id', normalizedId)
+          .eq('created_by', userId)
+          .maybeSingle(),
+      );
+      if (data) return true;
+    }
+
+    const { data: byTitle } = await withTimeout(
+      supabase
+        .from('projects')
+        .select('created_by')
+        .eq('title', projectTitle)
+        .eq('created_by', userId)
+        .limit(1)
+        .maybeSingle(),
+    );
+    return Boolean(byTitle);
+  } catch {
+    return false;
+  }
+};
+
+export const fetchAcceptedMemberships = async (userId: string): Promise<ProjectApplication[]> => {
+  if (!isSupabaseConfigured) return readAppsCache(userId).filter((a) => a.status === 'accepted');
+
+  try {
+    await ensureAuthSession();
+    const { data, error } = await withTimeout(
+      supabase
+        .from('user_applications')
+        .select(selectColumns)
+        .eq('user_id', userId)
+        .eq('status', 'accepted')
+        .order('submitted_at', { ascending: false })
+        .limit(30),
+    );
+    if (error) throw error;
+    return (data || []) as ProjectApplication[];
+  } catch {
+    return [];
+  }
+};
+
+export const leaveAcceptedProject = async (
+  userId: string,
+  applicationId: string,
+): Promise<{ ok: boolean; message: string }> => {
+  if (!isSupabaseConfigured) {
+    return { ok: false, message: 'Supabase не настроен.' };
+  }
+
+  try {
+    await ensureAuthSession();
+    const { error, count } = await withTimeout(
+      supabase
+        .from('user_applications')
+        .delete({ count: 'exact' })
+        .eq('id', applicationId)
+        .eq('user_id', userId)
+        .eq('status', 'accepted'),
+    );
+
+    if (error) return { ok: false, message: formatApplicationError(error) };
+    if (count === 0) {
+      return { ok: false, message: 'Не удалось выйти из проекта.' };
+    }
+
+    removeFromAppsCache(userId, applicationId);
+    return { ok: true, message: 'Вы вышли из проекта.' };
+  } catch (error) {
+    return { ok: false, message: formatApplicationError(error) };
   }
 };
 

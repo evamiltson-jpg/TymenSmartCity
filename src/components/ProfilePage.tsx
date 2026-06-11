@@ -17,7 +17,9 @@ import {
   cancelProjectApplication,
   APPLICATION_STATUS_LABELS,
   fetchIncomingApplications,
+  fetchAcceptedMemberships,
   fetchUserApplications,
+  leaveAcceptedProject,
   reviewProjectApplication,
   type IncomingApplication,
   type ProjectApplication,
@@ -36,6 +38,7 @@ import {
   formatProjectError,
   isProjectPendingPublication,
   isProjectPublishOverdue,
+  leaveProjectTeam,
   readSubmittedProjectsCache,
   updateProjectTeam,
   type SubmittedProject,
@@ -77,8 +80,8 @@ const PROFILE_TAB_LABELS: Record<ProfileTab, string> = {
   incoming: 'Заявки ко мне',
   notifications: 'Уведомления',
   messages: 'Сообщения',
-  projects: 'Мои проекты',
-  teams: 'Мои команды',
+  projects: 'Проекты',
+  teams: 'Команды',
 };
 
 const PROFILE_TABS: ProfileTab[] = [
@@ -126,6 +129,7 @@ export const ProfilePage: React.FC<{
   const [editingTeam, setEditingTeam] = useState<UserTeamDetail | null>(null);
   const [applications, setApplications] = useState<Application[]>([]);
   const [incomingApplications, setIncomingApplications] = useState<IncomingApplication[]>([]);
+  const [acceptedMemberships, setAcceptedMemberships] = useState<Application[]>([]);
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
   const [reviewBusyId, setReviewBusyId] = useState<string | null>(null);
   const [projects, setProjects] = useState<UserProject[]>([]);
@@ -258,7 +262,7 @@ export const ProfilePage: React.FC<{
     if (!user || authLoading) return;
     setLoadingData(true);
     try {
-      const [appsRes, projsRes, teamsRes, incomingRes, notifRes] = await Promise.all([
+      const [appsRes, projsRes, teamsRes, incomingRes, notifRes, membershipsRes] = await Promise.all([
         fetchUserApplications(user.id).then((data) => ({ data, error: null })).catch((error) => ({
           data: null,
           error,
@@ -275,6 +279,7 @@ export const ProfilePage: React.FC<{
         })),
         fetchIncomingApplications(user.id),
         fetchNotifications(user.id),
+        fetchAcceptedMemberships(user.id),
       ]);
 
       if (appsRes.data) setApplications(appsRes.data as Application[]);
@@ -284,6 +289,7 @@ export const ProfilePage: React.FC<{
       else if (teamsRes.error) console.error('Teams load error:', teamsRes.error);
       setIncomingApplications(incomingRes);
       setNotifications(notifRes);
+      setAcceptedMemberships(membershipsRes as Application[]);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -475,6 +481,61 @@ export const ProfilePage: React.FC<{
 
   const pendingIncomingCount = incomingApplications.filter((a) => a.status === 'pending').length;
   const unreadNotificationsCount = notifications.filter((n) => !n.is_read).length;
+
+  const activityTimeline = useMemo(() => {
+    const items: {
+      id: string;
+      date: string;
+      title: string;
+      subtitle: string;
+      kind: 'project' | 'team';
+    }[] = [];
+
+    acceptedMemberships.forEach((m) => {
+      items.push({
+        id: `proj-${m.id}`,
+        date: m.submitted_at,
+        title: m.project_title,
+        subtitle: 'Участник проекта',
+        kind: 'project',
+      });
+    });
+
+    teams.forEach((t) => {
+      items.push({
+        id: `team-${t.membership_id}`,
+        date: t.joined_at || new Date().toISOString(),
+        title: t.team_name,
+        subtitle: t.is_owner ? 'Создатель команды' : 'Участник команды',
+        kind: 'team',
+      });
+    });
+
+    return items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [acceptedMemberships, teams]);
+
+  const handleLeaveProject = async (applicationId: string, projectTitle: string) => {
+    if (!user || !confirm(`Выйти из проекта «${projectTitle}»?`)) return;
+    const result = await leaveAcceptedProject(user.id, applicationId);
+    if (result.ok) {
+      setSaveMessage(result.message);
+      await loadUserData();
+    } else {
+      setSaveError(result.message);
+    }
+  };
+
+  const handleLeaveTeam = async (team: UserTeamDetail) => {
+    if (!user || team.is_owner) return;
+    if (!confirm(`Выйти из команды «${team.team_name}»?`)) return;
+    const result = await leaveProjectTeam(user.id, team.membership_id);
+    if (result.ok) {
+      setSaveMessage(result.message);
+      await loadUserData();
+    } else {
+      setSaveError(result.message);
+    }
+  };
 
   const handleCreateTeam = async (payload: TeamCreatePayload) => {
     if (!user) return;
@@ -806,6 +867,96 @@ export const ProfilePage: React.FC<{
               </div>
             )}
 
+            {(acceptedMemberships.length > 0 || teams.length > 0) && !isEditing && (
+              <div className="bg-[#122e41] p-8 rounded-[32px] border border-white/5 space-y-5">
+                <h2 className="text-xl font-bold text-white">Участие</h2>
+                {acceptedMemberships.length > 0 && (
+                  <div>
+                    <p className={labelClass}>Проекты</p>
+                    <div className="space-y-2">
+                      {acceptedMemberships.map((m) => (
+                        <div
+                          key={m.id}
+                          className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0d2231] border border-white/5"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-white font-semibold truncate">{m.project_title}</p>
+                            <p className="text-[10px] text-gray-500">
+                              с {new Date(m.submitted_at).toLocaleDateString('ru-RU')}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleLeaveProject(m.id, m.project_title)}
+                            className="shrink-0 text-[10px] font-bold text-rose-400 uppercase"
+                          >
+                            Выйти
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {teams.length > 0 && (
+                  <div>
+                    <p className={labelClass}>Команды</p>
+                    <div className="space-y-2">
+                      {teams.map((t) => (
+                        <div
+                          key={t.membership_id}
+                          className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0d2231] border border-white/5"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-white font-semibold truncate">{t.team_name}</p>
+                            <p className="text-[10px] text-gray-500">
+                              {t.is_owner ? 'Создатель' : 'Участник'}
+                              {t.joined_at &&
+                                ` · с ${new Date(t.joined_at).toLocaleDateString('ru-RU')}`}
+                            </p>
+                          </div>
+                          {!t.is_owner && (
+                            <button
+                              type="button"
+                              onClick={() => void handleLeaveTeam(t)}
+                              className="shrink-0 text-[10px] font-bold text-rose-400 uppercase"
+                            >
+                              Выйти
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activityTimeline.length > 0 && !isEditing && (
+              <div className="bg-[#122e41] p-8 rounded-[32px] border border-white/5 space-y-4">
+                <h2 className="text-xl font-bold text-white">Хронология участия</h2>
+                <div className="relative pl-6 space-y-4 border-l border-yellow-400/20">
+                  {activityTimeline.map((item) => (
+                    <div key={item.id} className="relative">
+                      <span
+                        className={`absolute -left-[1.6rem] top-1.5 w-2.5 h-2.5 rounded-full ${
+                          item.kind === 'project' ? 'bg-yellow-400' : 'bg-sky-400'
+                        }`}
+                      />
+                      <p className="text-white font-semibold">{item.title}</p>
+                      <p className="text-xs text-gray-400">{item.subtitle}</p>
+                      <p className="text-[10px] text-gray-600 mt-0.5">
+                        {new Date(item.date).toLocaleDateString('ru-RU', {
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                        })}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Links */}
             <div className="bg-[#122e41] p-8 rounded-[32px] border border-white/5 space-y-5">
               <h2 className="text-xl font-bold text-white">Работы и ссылки</h2>
@@ -1074,7 +1225,7 @@ export const ProfilePage: React.FC<{
       {tab === 'projects' && (
         <div className="space-y-8">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="text-2xl font-bold text-white">Мои проекты</h2>
+            <h2 className="text-2xl font-bold text-white">Проекты</h2>
             <button
               onClick={() => onNavigate('projects')}
               className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-black font-bold rounded-xl text-xs uppercase"
@@ -1087,6 +1238,44 @@ export const ProfilePage: React.FC<{
             <p className="text-gray-400">Загрузка...</p>
           ) : (
             <>
+              {acceptedMemberships.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400">
+                    Участвую в проектах
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {acceptedMemberships.map((m) => (
+                      <div
+                        key={m.id}
+                        className="bg-[#122e41] p-5 rounded-[24px] border border-emerald-500/20"
+                      >
+                        <h3 className="font-bold text-lg text-white mb-1">{m.project_title}</h3>
+                        <p className="text-emerald-400 text-xs font-bold mb-3">Участник</p>
+                        <p className="text-gray-500 text-[11px] mb-4">
+                          Принят: {new Date(m.submitted_at).toLocaleDateString('ru-RU')}
+                        </p>
+                        <div className="flex flex-wrap gap-2 pt-3 border-t border-white/5">
+                          <button
+                            type="button"
+                            onClick={() => setTab('messages')}
+                            className="flex-1 min-w-[100px] py-2.5 rounded-2xl bg-sky-400/10 text-sky-300 font-bold text-[10px] uppercase"
+                          >
+                            Сообщения
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleLeaveProject(m.id, m.project_title)}
+                            className="flex-1 min-w-[100px] py-2.5 rounded-2xl border border-rose-500/30 text-rose-400 font-bold text-[10px] uppercase"
+                          >
+                            Выйти
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-4">
                 <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400">Поданные идеи</h3>
                 {saveError && (
@@ -1173,7 +1362,7 @@ export const ProfilePage: React.FC<{
       {tab === 'teams' && (
         <div className="space-y-6">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="text-2xl font-bold text-white">Мои команды</h2>
+            <h2 className="text-2xl font-bold text-white">Команды</h2>
             <button onClick={() => setShowCreateTeam(true)} className="px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-black font-bold rounded-xl text-xs uppercase">
               + Создать команду
             </button>
@@ -1188,6 +1377,11 @@ export const ProfilePage: React.FC<{
                     <div>
                       <h3 className="font-bold text-lg text-white mb-1">{team.team_name}</h3>
                       <p className="text-gray-400 text-xs">Членов: {team.member_count || 1}</p>
+                      {team.joined_at && (
+                        <p className="text-gray-500 text-[10px]">
+                          В команде с {new Date(team.joined_at).toLocaleDateString('ru-RU')}
+                        </p>
+                      )}
                     </div>
                     {team.is_owner && (
                       <div className="flex gap-2">
@@ -1204,6 +1398,15 @@ export const ProfilePage: React.FC<{
                           Удалить
                         </button>
                       </div>
+                    )}
+                    {!team.is_owner && (
+                      <button
+                        type="button"
+                        onClick={() => void handleLeaveTeam(team)}
+                        className="px-3 py-1.5 text-xs font-bold text-rose-300 border border-rose-500/30 rounded-lg hover:bg-rose-500/10"
+                      >
+                        Выйти
+                      </button>
                     )}
                   </div>
 

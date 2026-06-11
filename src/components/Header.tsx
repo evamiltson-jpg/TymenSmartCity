@@ -36,11 +36,6 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate, onOpenChat }) => {
       </div>
 
       <div className="flex items-center space-x-2 sm:space-x-4 md:space-x-6 text-sm shrink-0">
-        <button className="hidden sm:flex items-center space-x-1 hover:text-yellow-400 transition-colors font-bold uppercase tracking-widest text-[12px]" type="button">
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20 15.3 15.3 0 010-20z"/></svg>
-          <span>{lang === 'ru' ? 'RU' : 'eng'}</span>
-        </button>
-
         <button className="hidden md:block hover:text-yellow-400 transition-transform duration-200 p-1 transform hover:scale-110" type="button">
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         </button>

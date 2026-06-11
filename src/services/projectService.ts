@@ -666,6 +666,7 @@ const normalizeRow = (row: Record<string, unknown>): ProjectData => {
       category: String(row.category || row.direction || ''),
     }),
     projectType: 'city',
+    createdBy: row.created_by ? String(row.created_by) : null,
   };
 };
 
@@ -967,6 +968,25 @@ export const deleteMyProject = async (projectId: string, userId: string) => {
   invalidateMyProjectDetailCache(projectId);
 };
 
+export const leaveProjectTeam = async (
+  userId: string,
+  membershipId: string,
+): Promise<{ ok: boolean; message: string }> => {
+  if (!isSupabaseConfigured) {
+    return { ok: false, message: 'Supabase не настроен.' };
+  }
+
+  const { error, count } = await supabase
+    .from('user_teams')
+    .delete({ count: 'exact' })
+    .eq('id', membershipId)
+    .eq('user_id', userId);
+
+  if (error) return { ok: false, message: error.message };
+  if (count === 0) return { ok: false, message: 'Не удалось выйти из команды.' };
+  return { ok: true, message: 'Вы вышли из команды.' };
+};
+
 export const fetchUserTeams = async (userId: string): Promise<UserTeamOption[]> => {
   const { data, error } = await supabase
     .from('user_teams')
@@ -1215,6 +1235,7 @@ export interface UserTeamDetail {
   description: string;
   member_count: number;
   is_owner: boolean;
+  joined_at?: string;
   mission: string;
   linked_project: string;
   required_skills: string[];
@@ -1232,7 +1253,7 @@ export const isTeamNameTaken = async (userId: string, teamName: string, excludeT
 export const fetchMyTeamDetails = async (userId: string): Promise<UserTeamDetail[]> => {
   const { data, error } = await supabase
     .from('user_teams')
-    .select('id, team_id, team_name, member_count, teams!inner(id, team_name, description, created_by)')
+    .select('id, team_id, team_name, member_count, joined_at, teams!inner(id, team_name, description, created_by)')
     .eq('user_id', userId)
     .order('joined_at', { ascending: false });
 
@@ -1254,6 +1275,7 @@ export const fetchMyTeamDetails = async (userId: string): Promise<UserTeamDetail
       description: team.description || '',
       member_count: Number(row.member_count || 1),
       is_owner: team.created_by === userId,
+      joined_at: row.joined_at as string | undefined,
       mission: parsed.mission,
       linked_project: parsed.linked_project,
       required_skills: parsed.required_skills,

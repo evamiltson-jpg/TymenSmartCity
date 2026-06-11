@@ -85,6 +85,21 @@
     min-height: 0;
   }
 
+  .messenger-panel {
+    height: min(560px, calc(100vh - 16rem));
+    max-height: 560px;
+    min-height: 320px;
+  }
+
+  .messenger-sidebar {
+    max-height: min(560px, calc(100vh - 16rem));
+  }
+
+  .messenger-chat {
+    height: min(560px, calc(100vh - 16rem));
+    max-height: 560px;
+  }
+
   @media (max-width: 1023px) {
     .prosha-panel {
       height: min(78vh, 640px);

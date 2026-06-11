@@ -5,6 +5,7 @@ import { getProjectImageUrl } from '../services/projectService';
 import {
   APPLICATION_STATUS_LABELS,
   cancelProjectApplication,
+  checkIsProjectOwner,
   fetchApplicationForProject,
   submitProjectApplication,
   type ProjectApplication,
@@ -49,6 +50,7 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
   const [applyBusy, setApplyBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
 
   useEffect(() => {
     setStats(computeDisplayProjectStats(project));
@@ -59,12 +61,28 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
   useEffect(() => {
     if (!user) {
       setApplication(null);
+      setIsOwner(false);
       return;
     }
-    fetchApplicationForProject(user.id, String(project.id), project.title)
-      .then(setApplication)
+    if (project.createdBy && project.createdBy === user.id) {
+      setIsOwner(true);
+      setApplication(null);
+      return;
+    }
+    checkIsProjectOwner(user.id, String(project.id), project.title)
+      .then((owner) => {
+        setIsOwner(owner);
+        if (owner) {
+          setApplication(null);
+          return;
+        }
+        return fetchApplicationForProject(user.id, String(project.id), project.title);
+      })
+      .then((app) => {
+        if (app !== undefined) setApplication(app);
+      })
       .catch(() => setApplication(null));
-  }, [user, project.id]);
+  }, [user, project.id, project.title, project.createdBy]);
 
   const handleRate = async (stars: number) => {
     setRatingBusy(true);
@@ -193,7 +211,11 @@ export const ProjectDetailContent: React.FC<ProjectDetailContentProps> = ({
 
       {isApplyVisible && (
         <div className="space-y-3 pt-1 border-t border-white/10">
-          {application ? (
+          {isOwner ? (
+            <p className="text-sm text-gray-400">
+              Вы автор этого проекта. Управляйте заявками в личном кабинете → «Заявки ко мне».
+            </p>
+          ) : application ? (
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <span
                 className={`inline-flex px-4 py-2 rounded-xl font-bold text-xs uppercase ${
