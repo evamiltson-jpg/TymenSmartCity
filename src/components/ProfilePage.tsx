@@ -52,6 +52,8 @@ import { ITQuizModal } from './ITQuizModal';
 import { CreateProjectModal, CreateTeamModal, EditTeamModal } from './profile/ProfileCreateModals';
 import { ProfileSecuritySettings } from './profile/ProfileSecuritySettings';
 import { ProjectMessenger } from './profile/ProjectMessenger';
+import { ProfileInitiativesTab } from './profile/ProfileInitiativesTab';
+import { InitiativeModal } from './InitiativeModal';
 import { fetchChatUnreadSummary } from '../services/projectChatService';
 import { getQuizMeta, getSkillLevel, parseSkillEntry, type QuizResultPayload } from '../utils/quizStorage';
 import { getScoreBarColor } from '../data/itQuiz';
@@ -74,7 +76,8 @@ type ProfileTab =
   | 'notifications'
   | 'messages'
   | 'projects'
-  | 'teams';
+  | 'teams'
+  | 'initiatives';
 
 const PROFILE_TAB_LABELS: Record<ProfileTab, string> = {
   profile: 'Профиль',
@@ -84,6 +87,7 @@ const PROFILE_TAB_LABELS: Record<ProfileTab, string> = {
   messages: 'Сообщения',
   projects: 'Проекты',
   teams: 'Команды',
+  initiatives: 'Инициативы',
 };
 
 const PROFILE_TABS: ProfileTab[] = [
@@ -94,6 +98,7 @@ const PROFILE_TABS: ProfileTab[] = [
   'messages',
   'projects',
   'teams',
+  'initiatives',
 ];
 
 interface UserProject {
@@ -148,6 +153,8 @@ export const ProfilePage: React.FC<{
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingCert, setUploadingCert] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showInitiativeModal, setShowInitiativeModal] = useState(false);
+  const [initiativesRefreshKey, setInitiativesRefreshKey] = useState(0);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const certInputRef = useRef<HTMLInputElement>(null);
@@ -1382,6 +1389,26 @@ export const ProfilePage: React.FC<{
         </div>
       )}
 
+      {tab === 'initiatives' && user && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <h2 className="text-2xl font-bold text-white">Мои инициативы</h2>
+            <button
+              type="button"
+              onClick={() => setShowInitiativeModal(true)}
+              className="w-full sm:w-auto px-5 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-black font-bold rounded-xl text-xs uppercase"
+            >
+              + Предложить идею
+            </button>
+          </div>
+          <ProfileInitiativesTab
+            key={initiativesRefreshKey}
+            userId={user.id}
+            onOpenSubmit={() => setShowInitiativeModal(true)}
+          />
+        </div>
+      )}
+
       {tab === 'teams' && (
         <div className="space-y-6">
           <div className="flex items-center justify-between gap-4">
@@ -1463,6 +1490,12 @@ export const ProfilePage: React.FC<{
         </div>
       )}
 
+      <InitiativeModal
+        isOpen={showInitiativeModal}
+        onClose={() => setShowInitiativeModal(false)}
+        onNavigate={onNavigate}
+        onSubmitted={() => setInitiativesRefreshKey((k) => k + 1)}
+      />
       <ITQuizModal isOpen={showQuiz} onClose={() => setShowQuiz(false)} onNavigate={onNavigate} />
       <CreateProjectModal isOpen={showCreateProject} onClose={() => setShowCreateProject(false)} onSubmit={handleCreateProject} />
       <CreateTeamModal

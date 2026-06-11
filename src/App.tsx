@@ -7,10 +7,10 @@ import { Hero } from './components/Hero';
 import { Footer } from './components/Footer';
 
 const NewsSection = lazy(() => import('./components/NewsSection').then(m => ({ default: m.NewsSection })));
-const ManagementSection = lazy(() => import('./components/ManagementSection').then(m => ({ default: m.ManagementSection })));
 const ProjectsSection = lazy(() => import('./components/ProjectsSection').then(m => ({ default: m.ProjectsSection })));
-const ProjectsShowcase = lazy(() => import('./components/ProjectsShowcase').then(m => ({ default: m.ProjectsShowcase })));
-const InitiativeBanner = lazy(() => import('./components/InitiativeBanner').then(m => ({ default: m.InitiativeBanner })));
+const CitizenInitiativesSection = lazy(() =>
+  import('./components/CitizenInitiativesSection').then(m => ({ default: m.CitizenInitiativesSection })),
+);
 const DevelopmentDecisionBanner = lazy(() => import('./components/DevelopmentDecisionBanner').then(m => ({ default: m.DevelopmentDecisionBanner })));
 const CampusPage = lazy(() => import('./components/CampusPage').then(m => ({ default: m.CampusPage })));
 const ServicesPage = lazy(() => import('./components/ServicesPage').then(m => ({ default: m.ServicesPage })));
@@ -195,10 +195,9 @@ const AppContent: React.FC = () => {
                 </div>
 
                                 
-                {/* 5. Управление и Проекты */}
-                <ManagementSection />
+                {/* 5. Инициативы граждан и проекты */}
+                <CitizenInitiativesSection onNavigate={navigate} />
                 <ProjectsSection onNavigate={navigate} />
-                <InitiativeBanner />
               </Suspense>
             </main>
           </>

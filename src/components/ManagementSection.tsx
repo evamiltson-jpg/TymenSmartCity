@@ -1,9 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { MANAGEMENT_STEPS } from '../constants';
-import { InitiativeModal } from './InitiativeModal';
 
-export const ManagementSection: React.FC = () => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
+export const ManagementSection: React.FC<{ onOpenSubmit?: () => void }> = ({ onOpenSubmit }) => {
   const initiative = MANAGEMENT_STEPS[0];
 
   return (
@@ -35,15 +33,14 @@ export const ManagementSection: React.FC = () => {
           </div>
 
           <button
-            onClick={() => setIsModalOpen(true)}
+            type="button"
+            onClick={onOpenSubmit}
             className="w-full sm:w-auto shrink-0 px-6 sm:px-10 py-4 sm:py-5 rounded-2xl font-black text-base sm:text-lg uppercase tracking-wider bg-yellow-400 text-black hover:bg-yellow-300 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-[0_0_40px_rgba(250,204,21,0.35)]"
           >
             {initiative.buttonText}
           </button>
         </div>
       </div>
-
-      <InitiativeModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
     </section>
   );
 };
