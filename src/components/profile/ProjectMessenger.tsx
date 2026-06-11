@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useEncryption } from '../../contexts/EncryptionContext';
 import {
   downloadChatFile,
   isImageMime,
@@ -119,6 +120,11 @@ export const ProjectMessenger: React.FC<{
   onUnreadChange?: (total: number) => void;
 }> = ({ onUnreadChange }) => {
   const { user } = useAuth();
+  const { ready: e2eReady, fingerprint, initializing: e2eInit, refreshKeys, peerStatus } =
+    useEncryption();
+  const [peerKeyState, setPeerKeyState] = useState<
+    'ready' | 'missing' | 'local-missing' | 'unknown'
+  >('unknown');
   const [projects, setProjects] = useState<ChatProjectOption[]>([]);
   const [directChats, setDirectChats] = useState<DirectChatOption[]>([]);
   const [unread, setUnread] = useState<ChatUnreadSummary>({ total: 0, projects: {}, direct: {} });
@@ -160,6 +166,14 @@ export const ProjectMessenger: React.FC<{
     onUnreadChange?.(unreadSummary.total);
     return { projList, dmList };
   };
+
+  useEffect(() => {
+    if (!selection || selection.kind !== 'direct') {
+      setPeerKeyState('unknown');
+      return;
+    }
+    void peerStatus(selection.peerId).then(setPeerKeyState);
+  }, [selection, peerStatus, e2eReady]);
 
   useEffect(() => {
     if (!user) return;
@@ -502,6 +516,39 @@ export const ProjectMessenger: React.FC<{
             </div>
           )}
         </div>
+
+        {selection && (
+          <div className="flex-none px-3 sm:px-4 py-2 border-b border-white/5 bg-[#0f2433]/80 flex flex-wrap items-center gap-2 text-[10px] sm:text-xs">
+            {e2eInit ? (
+              <span className="text-gray-500">Инициализация ключей…</span>
+            ) : e2eReady ? (
+              <>
+                <span className="text-emerald-400 font-medium">🔐 Сообщения зашифрованы (E2E)</span>
+                {fingerprint && (
+                  <span className="text-gray-500 font-mono" title="Отпечаток вашего ключа">
+                    {fingerprint}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="text-amber-400">Ключи шифрования недоступны на этом устройстве</span>
+            )}
+            {selection.kind === 'direct' && peerKeyState === 'missing' && (
+              <span className="text-amber-400">· У собеседника ещё нет ключей</span>
+            )}
+            {selection.kind === 'direct' && peerKeyState === 'local-missing' && (
+              <span className="text-amber-400">· Войдите снова для генерации ключей</span>
+            )}
+            <button
+              type="button"
+              onClick={() => void refreshKeys()}
+              className="ml-auto text-sky-400 hover:text-sky-300 underline"
+              title="Сгенерировать новую пару ключей на этом устройстве"
+            >
+              Обновить ключи
+            </button>
+          </div>
+        )}
 
         {showParticipants && selection?.kind === 'project' && (
           <div className="flex-none border-b border-white/10 px-4 py-3 space-y-2 max-h-40 overflow-y-auto custom-scrollbar">

@@ -1,18 +1,20 @@
 import { isSupabaseConfigured, supabase } from './supabase';
 import { ensureAuthSession } from './projectService';
 import {
-  decryptMessage,
-  encryptMessage,
-  messageCryptoScopes,
-} from '../utils/messageCrypto';
+  decryptChatBody,
+  encryptDirectChatPayload,
+  encryptProjectChatPayload,
+} from './chatEncryptionService';
 import { sanitizeChatInput } from '../utils/security';
 import type { ChatAttachmentMeta } from './chatFileService';
+import type { E2eCipherPayload, E2eGroupCipherPayload } from '../lib/crypto/types';
 
 export interface ProjectChatMessage {
   id: string;
   project_id: string;
   sender_id: string;
   body: string;
+  encrypted_data?: E2eCipherPayload | E2eGroupCipherPayload | null;
   created_at: string;
   attachment_path?: string | null;
   attachment_name?: string | null;
@@ -26,6 +28,7 @@ export interface DirectMessage {
   sender_id: string;
   recipient_id: string;
   body: string;
+  encrypted_data?: E2eCipherPayload | null;
   is_read: boolean;
   created_at: string;
   attachment_path?: string | null;
@@ -340,7 +343,7 @@ export const fetchProjectMessages = async (
   const { data, error } = await withTimeout(
     supabase
       .from('project_chat_messages')
-      .select('id, project_id, sender_id, body, attachment_path, attachment_name, attachment_mime, created_at')
+      .select('id, project_id, sender_id, body, encrypted_data, attachment_path, attachment_name, attachment_mime, created_at')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true })
       .limit(200),
@@ -380,7 +383,13 @@ export const fetchProjectMessages = async (
   return Promise.all(
     enriched.map(async (m) => ({
       ...m,
-      body: await decryptMessage(m.body, messageCryptoScopes.projectChat(projectId)),
+      body: await decryptChatBody(m.body, m.encrypted_data, {
+        kind: 'project',
+        myUserId: userId ?? m.sender_id,
+        projectId,
+        senderId: m.sender_id,
+        participantIds: [],
+      }),
     })),
   );
 };
@@ -401,9 +410,13 @@ export const sendProjectMessage = async (
   }
 
   const plainBody = trimmed || `📎 ${attachment?.name || 'файл'}`;
-  const encryptedBody = await encryptMessage(
+  const participants = await fetchProjectParticipants(projectId);
+  const participantIds = participants.map((p) => p.user_id);
+  const { body: storedBody, encrypted_data } = await encryptProjectChatPayload(
     plainBody,
-    messageCryptoScopes.projectChat(projectId),
+    senderId,
+    projectId,
+    participantIds.length > 0 ? participantIds : [senderId],
   );
 
   await ensureAuthSession();
@@ -413,12 +426,13 @@ export const sendProjectMessage = async (
       .insert({
         project_id: projectId,
         sender_id: senderId,
-        body: encryptedBody,
+        body: storedBody,
+        encrypted_data,
         attachment_path: attachment?.path ?? null,
         attachment_name: attachment?.name ?? null,
         attachment_mime: attachment?.mime ?? null,
       })
-      .select('id, project_id, sender_id, body, attachment_path, attachment_name, attachment_mime, created_at')
+      .select('id, project_id, sender_id, body, encrypted_data, attachment_path, attachment_name, attachment_mime, created_at')
       .single(),
   );
 
@@ -448,7 +462,7 @@ export const fetchDirectChats = async (userId: string): Promise<DirectChatOption
   const { data, error } = await withTimeout(
     supabase
       .from('direct_messages')
-      .select('id, sender_id, recipient_id, body, attachment_path, attachment_name, attachment_mime, created_at')
+      .select('id, sender_id, recipient_id, body, encrypted_data, attachment_path, attachment_name, attachment_mime, created_at')
       .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
       .order('created_at', { ascending: false })
       .limit(200),
@@ -464,10 +478,12 @@ export const fetchDirectChats = async (userId: string): Promise<DirectChatOption
   for (const row of data || []) {
     const peerId = row.sender_id === userId ? row.recipient_id : row.sender_id;
     if (hidden.has(peerId) || peerMap.has(peerId)) continue;
-    const preview = await decryptMessage(
-      row.body as string,
-      messageCryptoScopes.directChat(userId, peerId),
-    );
+    const preview = await decryptChatBody(row.body as string, row.encrypted_data, {
+      kind: 'direct',
+      myUserId: userId,
+      peerId,
+      senderId: row.sender_id as string,
+    });
     peerMap.set(peerId, {
       peer_id: peerId,
       peer_name: 'Участник',
@@ -502,7 +518,7 @@ export const fetchDirectMessages = async (
   const { data, error } = await withTimeout(
     supabase
       .from('direct_messages')
-      .select('id, sender_id, recipient_id, body, attachment_path, attachment_name, attachment_mime, is_read, created_at')
+      .select('id, sender_id, recipient_id, body, encrypted_data, attachment_path, attachment_name, attachment_mime, is_read, created_at')
       .or(
         `and(sender_id.eq.${userId},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${userId})`,
       )
@@ -522,11 +538,15 @@ export const fetchDirectMessages = async (
     .eq('sender_id', peerId)
     .eq('is_read', false);
 
-  const scope = messageCryptoScopes.directChat(userId, peerId);
   return Promise.all(
     ((data || []) as DirectMessage[]).map(async (msg) => ({
       ...msg,
-      body: await decryptMessage(msg.body, scope),
+      body: await decryptChatBody(msg.body, msg.encrypted_data, {
+        kind: 'direct',
+        myUserId: userId,
+        peerId,
+        senderId: msg.sender_id,
+      }),
     })),
   );
 };
@@ -546,9 +566,10 @@ export const sendDirectMessage = async (
   }
 
   const plainBody = trimmed || `📎 ${attachment?.name || 'файл'}`;
-  const encryptedBody = await encryptMessage(
+  const { body: storedBody, encrypted_data } = await encryptDirectChatPayload(
     plainBody,
-    messageCryptoScopes.directChat(userId, peerId),
+    userId,
+    peerId,
   );
 
   await ensureAuthSession();
@@ -562,7 +583,8 @@ export const sendDirectMessage = async (
   const { error } = await supabase.from('direct_messages').insert({
     sender_id: userId,
     recipient_id: peerId,
-    body: encryptedBody,
+    body: storedBody,
+    encrypted_data,
     attachment_path: attachment?.path ?? null,
     attachment_name: attachment?.name ?? null,
     attachment_mime: attachment?.mime ?? null,

@@ -3,6 +3,7 @@ import { useAuth } from './contexts/AuthContext';
 import { Header } from './components/Header';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { AuthProvider } from './contexts/AuthContext';
+import { EncryptionProvider } from './contexts/EncryptionContext';
 import { Hero } from './components/Hero';
 import { Footer } from './components/Footer';
 
@@ -247,7 +248,9 @@ const App: React.FC = () => {
   return (
     <LanguageProvider>
       <AuthProvider>
-        <AppContent />
+        <EncryptionProvider>
+          <AppContent />
+        </EncryptionProvider>
       </AuthProvider>
     </LanguageProvider>
   );
