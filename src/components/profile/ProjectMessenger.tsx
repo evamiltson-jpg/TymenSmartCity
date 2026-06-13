@@ -120,8 +120,15 @@ export const ProjectMessenger: React.FC<{
   onUnreadChange?: (total: number) => void;
 }> = ({ onUnreadChange }) => {
   const { user } = useAuth();
-  const { ready: e2eReady, fingerprint, initializing: e2eInit, refreshKeys, peerStatus } =
-    useEncryption();
+  const {
+    ready: e2eReady,
+    fingerprint,
+    initializing: e2eInit,
+    initError: e2eError,
+    warmChatKeys,
+    resetKeysOnDevice,
+    peerStatus,
+  } = useEncryption();
   const [peerKeyState, setPeerKeyState] = useState<
     'ready' | 'missing' | 'local-missing' | 'unknown'
   >('unknown');
@@ -172,8 +179,36 @@ export const ProjectMessenger: React.FC<{
       setPeerKeyState('unknown');
       return;
     }
-    void peerStatus(selection.peerId).then(setPeerKeyState);
+
+    let cancelled = false;
+    const poll = async () => {
+      const status = await peerStatus(selection.peerId);
+      if (!cancelled) setPeerKeyState(status);
+    };
+
+    void poll();
+    const timer = window.setInterval(() => {
+      void poll();
+    }, 3_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [selection, peerStatus, e2eReady]);
+
+  useEffect(() => {
+    if (!selection || !user || e2eInit) return;
+
+    const ids =
+      selection.kind === 'direct'
+        ? [selection.peerId]
+        : participants.map((p) => p.user_id);
+
+    if (ids.length === 0 && selection.kind === 'project') return;
+
+    void warmChatKeys(ids);
+  }, [selection, user, participants, e2eInit, warmChatKeys]);
 
   useEffect(() => {
     if (!user) return;
@@ -269,6 +304,14 @@ export const ProjectMessenger: React.FC<{
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !selection) return;
+    if (e2eInit) {
+      setError('Ключи шифрования ещё создаются. Подождите пару секунд.');
+      return;
+    }
+    if (!e2eReady) {
+      setError(e2eError || 'Шифрование недоступно. Обновите страницу.');
+      return;
+    }
     if (!draft.trim() && !pendingFile) return;
 
     let textValue = '';
@@ -520,10 +563,10 @@ export const ProjectMessenger: React.FC<{
         {selection && (
           <div className="flex-none px-3 sm:px-4 py-2 border-b border-white/5 bg-[#0f2433]/80 flex flex-wrap items-center gap-2 text-[10px] sm:text-xs">
             {e2eInit ? (
-              <span className="text-gray-500">Инициализация ключей…</span>
+              <span className="text-gray-400">Создаём ключи шифрования…</span>
             ) : e2eReady ? (
               <>
-                <span className="text-emerald-400 font-medium">🔐 Сообщения зашифрованы (E2E)</span>
+                <span className="text-emerald-400 font-medium">🔐 E2E — ключи активны</span>
                 {fingerprint && (
                   <span className="text-gray-500 font-mono" title="Отпечаток вашего ключа">
                     {fingerprint}
@@ -531,22 +574,34 @@ export const ProjectMessenger: React.FC<{
                 )}
               </>
             ) : (
-              <span className="text-amber-400">Ключи шифрования недоступны на этом устройстве</span>
+              <span className="text-amber-400">{e2eError || 'Шифрование недоступно'}</span>
             )}
             {selection.kind === 'direct' && peerKeyState === 'missing' && (
-              <span className="text-amber-400">· У собеседника ещё нет ключей</span>
+              <span className="text-amber-400">· Ожидаем ключи собеседника (войдёт — появятся сами)</span>
             )}
-            {selection.kind === 'direct' && peerKeyState === 'local-missing' && (
-              <span className="text-amber-400">· Войдите снова для генерации ключей</span>
+            {selection.kind === 'direct' && peerKeyState === 'ready' && (
+              <span className="text-emerald-400/80">· Собеседник готов к E2E</span>
             )}
-            <button
-              type="button"
-              onClick={() => void refreshKeys()}
-              className="ml-auto text-sky-400 hover:text-sky-300 underline"
-              title="Сгенерировать новую пару ключей на этом устройстве"
-            >
-              Обновить ключи
-            </button>
+            <details className="ml-auto">
+              <summary className="text-gray-500 cursor-pointer hover:text-gray-400 list-none">
+                Устройство
+              </summary>
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'Пересоздать ключи на этом устройстве? Старые E2E-сообщения могут не расшифроваться.',
+                    )
+                  ) {
+                    void resetKeysOnDevice();
+                  }
+                }}
+                className="mt-1 block text-rose-400 hover:text-rose-300 underline text-left"
+              >
+                Пересоздать ключи (новое устройство)
+              </button>
+            </details>
           </div>
         )}
 

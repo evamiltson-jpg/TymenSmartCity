@@ -3,6 +3,16 @@ import { importPublicKeyJwk } from '../lib/crypto/crypto';
 
 const publicKeyCache = new Map<string, JsonWebKey>();
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export const invalidatePublicKeyCache = (userId?: string): void => {
+  if (userId) {
+    publicKeyCache.delete(userId);
+    return;
+  }
+  publicKeyCache.clear();
+};
+
 export const upsertUserPublicKey = async (userId: string, publicKeyJson: string): Promise<void> => {
   if (!isSupabaseConfigured) return;
 
@@ -95,3 +105,23 @@ export const clearPublicKeyCache = (): void => {
 
 export const hasUserPublicKey = async (userId: string): Promise<boolean> =>
   Boolean(await fetchUserPublicKeyJwk(userId));
+
+/** Ожидание публикации ключа пользователя (например, собеседник только что вошёл). */
+export const waitForUserPublicKey = async (
+  userId: string,
+  timeoutMs = 20_000,
+  intervalMs = 2_000,
+): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    invalidatePublicKeyCache(userId);
+    if (await hasUserPublicKey(userId)) return true;
+    await sleep(intervalMs);
+  }
+  return false;
+};
+
+export const prefetchUserPublicKeys = async (userIds: string[]): Promise<void> => {
+  if (userIds.length === 0) return;
+  await fetchUserPublicKeys([...new Set(userIds)]);
+};

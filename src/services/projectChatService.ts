@@ -412,12 +412,16 @@ export const sendProjectMessage = async (
   const plainBody = trimmed || `📎 ${attachment?.name || 'файл'}`;
   const participants = await fetchProjectParticipants(projectId);
   const participantIds = participants.map((p) => p.user_id);
-  const { body: storedBody, encrypted_data } = await encryptProjectChatPayload(
+  const encrypted = await encryptProjectChatPayload(
     plainBody,
     senderId,
     projectId,
     participantIds.length > 0 ? participantIds : [senderId],
   );
+
+  if (!encrypted.ok) {
+    return { ok: false, error: encrypted.error };
+  }
 
   await ensureAuthSession();
   const { data, error } = await withTimeout(
@@ -426,8 +430,8 @@ export const sendProjectMessage = async (
       .insert({
         project_id: projectId,
         sender_id: senderId,
-        body: storedBody,
-        encrypted_data,
+        body: encrypted.body,
+        encrypted_data: encrypted.encrypted_data,
         attachment_path: attachment?.path ?? null,
         attachment_name: attachment?.name ?? null,
         attachment_mime: attachment?.mime ?? null,
@@ -566,11 +570,11 @@ export const sendDirectMessage = async (
   }
 
   const plainBody = trimmed || `📎 ${attachment?.name || 'файл'}`;
-  const { body: storedBody, encrypted_data } = await encryptDirectChatPayload(
-    plainBody,
-    userId,
-    peerId,
-  );
+  const encrypted = await encryptDirectChatPayload(plainBody, userId, peerId);
+
+  if (!encrypted.ok) {
+    return { ok: false, error: encrypted.error };
+  }
 
   await ensureAuthSession();
 
@@ -583,8 +587,8 @@ export const sendDirectMessage = async (
   const { error } = await supabase.from('direct_messages').insert({
     sender_id: userId,
     recipient_id: peerId,
-    body: storedBody,
-    encrypted_data,
+    body: encrypted.body,
+    encrypted_data: encrypted.encrypted_data,
     attachment_path: attachment?.path ?? null,
     attachment_name: attachment?.name ?? null,
     attachment_mime: attachment?.mime ?? null,

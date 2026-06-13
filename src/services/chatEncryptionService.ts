@@ -7,14 +7,15 @@ import {
   isE2eCipherPayload,
   isE2eGroupCipherPayload,
 } from '../lib/crypto/crypto';
-import { getPrivateKey } from '../lib/crypto/keyManager';
+import { getPrivateKey, waitForEncryptionReady } from '../lib/crypto/keyManager';
 import type { E2eCipherPayload, E2eGroupCipherPayload } from '../lib/crypto/types';
+import { decryptMessage, messageCryptoScopes } from '../utils/messageCrypto';
 import {
-  decryptMessage,
-  encryptMessage,
-  messageCryptoScopes,
-} from '../utils/messageCrypto';
-import { fetchUserPublicKeys, hasUserPublicKey } from './publicKeyService';
+  fetchUserPublicKeys,
+  hasUserPublicKey,
+  prefetchUserPublicKeys,
+  waitForUserPublicKey,
+} from './publicKeyService';
 
 export const E2E_BODY_PLACEHOLDER = '🔒';
 
@@ -25,6 +26,27 @@ const WAITING_KEYS = '[Ожидаем ключи шифрования у соб�
 export type ChatDecryptContext =
   | { kind: 'direct'; myUserId: string; peerId: string; senderId: string }
   | { kind: 'project'; myUserId: string; projectId: string; senderId: string; participantIds: string[] };
+
+export type EncryptChatResult =
+  | { ok: true; body: string; encrypted_data: E2eCipherPayload | E2eGroupCipherPayload }
+  | { ok: false; error: string };
+
+export const prepareChatEncryption = async (
+  myUserId: string,
+  peerOrParticipantIds: string[],
+): Promise<{ ready: boolean; error?: string }> => {
+  const keysReady = await waitForEncryptionReady(myUserId, 12_000);
+  if (!keysReady) {
+    return { ready: false, error: 'Ключи шифрования ещё создаются. Подождите пару секунд.' };
+  }
+
+  const ids = [...new Set(peerOrParticipantIds.filter((id) => id !== myUserId))];
+  if (ids.length > 0) {
+    await prefetchUserPublicKeys(ids);
+  }
+
+  return { ready: true };
+};
 
 export const canEncryptDirect = async (peerId: string): Promise<boolean> => {
   if (!getPrivateKey()) return false;
@@ -41,52 +63,83 @@ export const encryptDirectChatPayload = async (
   plaintext: string,
   myUserId: string,
   peerId: string,
-): Promise<{ body: string; encrypted_data: E2eCipherPayload | null }> => {
-  const scope = messageCryptoScopes.directChat(myUserId, peerId);
-  const privateKey = getPrivateKey();
+): Promise<EncryptChatResult> => {
+  const prepared = await prepareChatEncryption(myUserId, [peerId]);
+  if (!prepared.ready) {
+    return { ok: false, error: prepared.error || 'Шифрование не готово.' };
+  }
 
-  if (privateKey) {
-    const peerKeys = await fetchUserPublicKeys([peerId]);
-    const peerJwk = peerKeys.get(peerId);
-    if (peerJwk) {
-      const peerPublic = await importPublicKeyJwk(peerJwk);
-      const encrypted_data = await encryptDirectMessage(plaintext, privateKey, peerPublic);
-      return { body: E2E_BODY_PLACEHOLDER, encrypted_data };
+  const privateKey = getPrivateKey();
+  if (!privateKey) {
+    return { ok: false, error: 'Не удалось загрузить ключи шифрования.' };
+  }
+
+  const hasPeerKey = await hasUserPublicKey(peerId);
+  if (!hasPeerKey) {
+    const appeared = await waitForUserPublicKey(peerId, 12_000, 1_500);
+    if (!appeared) {
+      return {
+        ok: false,
+        error: 'У собеседника ещё нет ключей. Попросите его войти в аккаунт — ключи создадутся автоматически.',
+      };
     }
   }
 
-  return {
-    body: await encryptMessage(plaintext, scope),
-    encrypted_data: null,
-  };
+  const peerJwk = (await fetchUserPublicKeys([peerId])).get(peerId);
+  if (!peerJwk) {
+    return { ok: false, error: 'Не удалось получить ключ собеседника.' };
+  }
+
+  const peerPublic = await importPublicKeyJwk(peerJwk);
+  const encrypted_data = await encryptDirectMessage(plaintext, privateKey, peerPublic);
+  return { ok: true, body: E2E_BODY_PLACEHOLDER, encrypted_data };
 };
 
 export const encryptProjectChatPayload = async (
   plaintext: string,
   myUserId: string,
-  projectId: string,
+  _projectId: string,
   participantIds: string[],
-): Promise<{ body: string; encrypted_data: E2eGroupCipherPayload | null }> => {
-  const scope = messageCryptoScopes.projectChat(projectId);
-  const privateKey = getPrivateKey();
+): Promise<EncryptChatResult> => {
   const uniqueIds = [...new Set(participantIds)];
+  if (uniqueIds.length === 0) uniqueIds.push(myUserId);
 
-  if (privateKey && uniqueIds.length > 0) {
-    const jwks = await fetchUserPublicKeys(uniqueIds);
-    if (uniqueIds.every((id) => jwks.has(id))) {
-      const publicKeys = new Map<string, CryptoKey>();
-      for (const [id, jwk] of jwks) {
-        publicKeys.set(id, await importPublicKeyJwk(jwk));
-      }
-      const encrypted_data = await encryptGroupMessage(plaintext, privateKey, uniqueIds, publicKeys);
-      return { body: E2E_BODY_PLACEHOLDER, encrypted_data };
-    }
+  const prepared = await prepareChatEncryption(myUserId, uniqueIds);
+  if (!prepared.ready) {
+    return { ok: false, error: prepared.error || 'Шифрование не готово.' };
   }
 
-  return {
-    body: await encryptMessage(plaintext, scope),
-    encrypted_data: null,
-  };
+  const privateKey = getPrivateKey();
+  if (!privateKey) {
+    return { ok: false, error: 'Не удалось загрузить ключи шифрования.' };
+  }
+
+  const missing: string[] = [];
+  let jwks = await fetchUserPublicKeys(uniqueIds);
+  for (const id of uniqueIds) {
+    if (!jwks.has(id)) missing.push(id);
+  }
+
+  if (missing.length > 0) {
+    await Promise.all(missing.map((id) => waitForUserPublicKey(id, 8_000, 1_500)));
+    jwks = await fetchUserPublicKeys(uniqueIds);
+  }
+
+  const stillMissing = uniqueIds.filter((id) => !jwks.has(id));
+  if (stillMissing.length > 0) {
+    return {
+      ok: false,
+      error: `Не у всех участников есть ключи (${stillMissing.length}). Им нужно один раз войти в аккаунт.`,
+    };
+  }
+
+  const publicKeys = new Map<string, CryptoKey>();
+  for (const [id, jwk] of jwks) {
+    publicKeys.set(id, await importPublicKeyJwk(jwk));
+  }
+
+  const encrypted_data = await encryptGroupMessage(plaintext, privateKey, uniqueIds, publicKeys);
+  return { ok: true, body: E2E_BODY_PLACEHOLDER, encrypted_data };
 };
 
 export const decryptChatBody = async (
